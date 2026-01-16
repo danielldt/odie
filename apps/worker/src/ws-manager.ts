@@ -61,7 +61,12 @@ export class ClobWsManager {
   }
 
   async connect() {
-    await this.client.connect();
+    try {
+      await this.client.connect();
+    } catch (error) {
+      // Log the error but don't crash - the client has auto-reconnect enabled
+      logger.warn(error, "Initial WebSocket connection failed, will retry in background");
+    }
   }
 
   disconnect() {
