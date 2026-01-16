@@ -8,7 +8,7 @@ if (!connectionString) {
   connectionString = "postgresql://odie:odie_secret@localhost:5432/odie_polymarket";
 }
 
-// For query purposes
+// For query purposes - postgres.js handles connection pooling internally
 const queryClient = postgres(connectionString);
 export const db = drizzle(queryClient, { schema });
 

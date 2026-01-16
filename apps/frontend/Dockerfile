@@ -25,12 +25,25 @@ FROM nginx:alpine AS runner
 # Copy built files
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
-# Copy nginx config template
-COPY apps/frontend/nginx.conf /etc/nginx/templates/default.conf.template
+# Create nginx config directly (avoiding template issues)
+RUN echo 'server { \
+    listen 3000; \
+    server_name localhost; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    gzip on; \
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript; \
+    location /assets/ { \
+        expires 1y; \
+        add_header Cache-Control "public, immutable"; \
+    } \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
 
-# Railway provides PORT dynamically
+# Railway provides PORT dynamically - nginx will use 3000, Railway maps it
 ENV PORT=3000
 EXPOSE 3000
 
-# Use envsubst to substitute PORT at runtime, then start nginx
-CMD ["/bin/sh", "-c", "envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]
