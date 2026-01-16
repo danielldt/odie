@@ -21,7 +21,16 @@ RUN pnpm --filter @odie/frontend build
 
 # Production - serve with nginx
 FROM nginx:alpine AS runner
+
+# Copy built files
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
-COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy nginx config template
+COPY apps/frontend/nginx.conf /etc/nginx/templates/default.conf.template
+
+# Railway provides PORT dynamically
+ENV PORT=3000
 EXPOSE 3000
-CMD ["nginx", "-g", "daemon off;"]
+
+# Use envsubst to substitute PORT at runtime, then start nginx
+CMD ["/bin/sh", "-c", "envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
