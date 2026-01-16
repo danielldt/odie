@@ -25,9 +25,9 @@ FROM nginx:alpine AS runner
 # Copy built files
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
-# Create nginx config directly (avoiding template issues)
+# Create nginx config template with PORT placeholder
 RUN echo 'server { \
-    listen 3000; \
+    listen PORT_PLACEHOLDER; \
     server_name localhost; \
     root /usr/share/nginx/html; \
     index index.html; \
@@ -40,10 +40,10 @@ RUN echo 'server { \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
-}' > /etc/nginx/conf.d/default.conf
+}' > /etc/nginx/conf.d/default.conf.template
 
-# Railway provides PORT dynamically - nginx will use 3000, Railway maps it
+# Default port
 ENV PORT=3000
-EXPOSE 3000
 
-CMD ["nginx", "-g", "daemon off;"]
+# Start script: substitute PORT and run nginx
+CMD /bin/sh -c "sed 's/PORT_PLACEHOLDER/'\"$PORT\"'/g' /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
