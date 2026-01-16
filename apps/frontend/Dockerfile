@@ -25,8 +25,8 @@ FROM nginx:alpine AS runner
 # Copy built files
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
-# Remove default nginx config
-RUN rm /etc/nginx/conf.d/default.conf
+# Remove default nginx config and create templates directory
+RUN rm /etc/nginx/conf.d/default.conf && mkdir -p /etc/nginx/templates
 
 # Create nginx config template (PORT will be substituted at runtime)
 RUN printf 'server {\n\
