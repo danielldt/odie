@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyBaseLogger } from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import websocket from "@fastify/websocket";
@@ -18,7 +18,7 @@ import { errorHandler } from "./lib/error-handler.js";
 
 export async function createApp() {
   const app = Fastify({
-    logger: logger,
+    logger: logger as unknown as FastifyBaseLogger,
     requestIdHeader: "x-request-id",
     requestIdLogLabel: "requestId",
   });

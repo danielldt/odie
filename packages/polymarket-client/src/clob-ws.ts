@@ -183,16 +183,16 @@ export class ClobWsClient extends EventEmitter<ClobWsEventMap> {
     };
 
     if (subscription.assetId) {
-      msg.assets_ids = [subscription.assetId];
+      msg['assets_ids'] = [subscription.assetId];
     }
 
     if (subscription.market) {
-      msg.markets = [subscription.market];
+      msg['markets'] = [subscription.market];
     }
 
     // Add auth headers for user channel
     if (subscription.channel === "user" && this.credentials) {
-      msg.auth = {
+      msg['auth'] = {
         apiKey: this.credentials.apiKey,
         secret: this.credentials.apiSecret,
         passphrase: this.credentials.passphrase,

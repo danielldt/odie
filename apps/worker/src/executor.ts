@@ -1,4 +1,5 @@
 import { Worker, type Job } from "bullmq";
+// @ts-expect-error - redlock types don't properly export for ESM
 import Redlock from "redlock";
 import { redis } from "./lib/redis.js";
 import { logger } from "./lib/logger.js";
@@ -154,6 +155,10 @@ async function executeRun(params: ExecuteRunParams) {
     status: "running",
     idempotencyKey,
   });
+
+  if (!run) {
+    throw new Error("Failed to create trade run");
+  }
 
   const runLogger = logger.child({ runId: run.id, strategyId: strategy.id });
 
@@ -315,7 +320,7 @@ async function placeDualLegOrders(
   const noClientOrderId = generateClientOrderId(runId, "NO");
 
   // Create order records first
-  const [yesOrderRecord, noOrderRecord] = await createOrders([
+  const orderRecords = await createOrders([
     {
       tradeRunId: runId,
       clientOrderId: yesClientOrderId,
@@ -333,6 +338,13 @@ async function placeDualLegOrders(
       size: strategy.noSize,
     },
   ]);
+
+  const yesOrderRecord = orderRecords[0];
+  const noOrderRecord = orderRecords[1];
+
+  if (!yesOrderRecord || !noOrderRecord) {
+    throw new Error("Failed to create order records");
+  }
 
   // Place batch orders via CLOB REST
   const batchResponse = await clobRest.placeBatchOrders([
@@ -386,7 +398,7 @@ async function monitorAndHedge(
   orderResult: Awaited<ReturnType<typeof placeDualLegOrders>>,
   clobRest: ReturnType<typeof createClobRestClient>,
   wsManager: ClobWsManager,
-  runLogger: ReturnType<typeof logger.child>
+  runLogger: typeof logger
 ): Promise<{ status: "BOTH_FILLED" | "HEDGED" | "CANCELLED"; message?: string }> {
   const deadline = Date.now() + strategy.legTimeoutMs;
   const fillState = { yesFilled: false, noFilled: false };
@@ -524,7 +536,7 @@ async function autoCashOut(
   strategy: NonNullable<Awaited<ReturnType<typeof getStrategyById>>>,
   clobRest: ReturnType<typeof createClobRestClient>,
   wsManager: ClobWsManager,
-  runLogger: ReturnType<typeof logger.child>
+  runLogger: typeof logger
 ) {
   try {
     // Get current midpoints

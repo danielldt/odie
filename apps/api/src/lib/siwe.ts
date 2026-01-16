@@ -48,7 +48,7 @@ export function generateSiweMessage(
   chainId: number,
   nonce: string
 ): string {
-  const domain = process.env.FRONTEND_URL || "localhost:3000";
+  const domain = process.env['FRONTEND_URL'] || "localhost:3000";
   const uri = `${domain}/`;
   const issuedAt = new Date().toISOString();
   

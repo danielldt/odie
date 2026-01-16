@@ -65,6 +65,10 @@ export async function credentialRoutes(app: FastifyInstance) {
       keyVersion: 1,
     });
 
+    if (!credential) {
+      throw new BadRequestError("Failed to create credential");
+    }
+
     return reply.status(201).send({
       credentialId: credential.id,
       walletId: credential.walletId,

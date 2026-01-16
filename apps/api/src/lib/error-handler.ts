@@ -63,7 +63,7 @@ export function errorHandler(
   return reply.status(500).send({
     statusCode: 500,
     error: "Internal Server Error",
-    message: process.env.NODE_ENV === "production" 
+    message: process.env['NODE_ENV'] === "production" 
       ? "An unexpected error occurred" 
       : error.message,
   } satisfies ApiError);
