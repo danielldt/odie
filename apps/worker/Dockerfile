@@ -20,7 +20,10 @@ COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /app/packages/polymarket-client/node_modules ./packages/polymarket-client/node_modules
 COPY --from=deps /app/apps/worker/node_modules ./apps/worker/node_modules
 COPY . .
-RUN pnpm run build
+RUN pnpm --filter @odie/shared build && \
+    pnpm --filter @odie/db build && \
+    pnpm --filter @odie/polymarket-client build && \
+    pnpm --filter @odie/worker build
 
 # Production
 FROM base AS runner
