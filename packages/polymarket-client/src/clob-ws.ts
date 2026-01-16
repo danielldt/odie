@@ -75,13 +75,15 @@ export class ClobWsClient extends EventEmitter<ClobWsEventMap> {
     this.isConnecting = true;
     this.shouldReconnect = true;
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       try {
         this.ws = new WebSocket(this.wsUrl);
+        let resolved = false;
 
         this.ws.on("open", () => {
           this.isConnecting = false;
           this.reconnectAttempts = 0;
+          resolved = true;
           this.emit("connected");
           
           // Resubscribe to previous subscriptions
@@ -98,6 +100,12 @@ export class ClobWsClient extends EventEmitter<ClobWsEventMap> {
           this.isConnecting = false;
           this.emit("disconnected", code, reason.toString());
           
+          // Resolve the promise if we haven't yet (connection failed before open)
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
+          
           if (this.shouldReconnect && this.reconnect) {
             this.scheduleReconnect();
           }
@@ -106,11 +114,14 @@ export class ClobWsClient extends EventEmitter<ClobWsEventMap> {
         this.ws.on("error", (error) => {
           this.isConnecting = false;
           this.emit("error", error);
-          reject(error);
+          // Don't reject - let the close event handle reconnection
+          // The close event will fire after error
         });
       } catch (error) {
         this.isConnecting = false;
-        reject(error);
+        this.emit("error", error as Error);
+        // Still resolve to allow the app to continue
+        resolve();
       }
     });
   }
