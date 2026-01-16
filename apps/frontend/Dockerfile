@@ -42,8 +42,13 @@ RUN echo 'server { \
     } \
 }' > /etc/nginx/conf.d/default.conf.template
 
+# Create startup script
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'sed "s/PORT_PLACEHOLDER/$PORT/g" /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf' >> /start.sh && \
+    echo 'exec nginx -g "daemon off;"' >> /start.sh && \
+    chmod +x /start.sh
+
 # Default port
 ENV PORT=3000
 
-# Start script: substitute PORT and run nginx
-CMD /bin/sh -c "sed 's/PORT_PLACEHOLDER/'\"$PORT\"'/g' /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+ENTRYPOINT ["/start.sh"]
