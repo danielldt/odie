@@ -37,6 +37,10 @@ export async function authRoutes(app: FastifyInstance) {
       passwordHash,
     });
 
+    if (!user) {
+      throw new BadRequestError("Failed to create user");
+    }
+
     // Generate tokens
     const payload: JwtPayload = { sub: user.id, email: user.email };
     const tokens = await generateTokens(app, payload);

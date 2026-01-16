@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { strategyCreateSchema, strategyUpdateSchema } from "@odie/shared/schemas";
+import { strategyCreateSchema, strategyUpdateSchema, type StrategyUpdateInput } from "@odie/shared/schemas";
 import {
   createStrategy,
   getStrategyById,
@@ -88,7 +88,7 @@ export async function strategyRoutes(app: FastifyInstance) {
   app.patch("/:id", async (request, reply) => {
     const userId = getUserId(request);
     const { id } = request.params as { id: string };
-    const input = strategyUpdateSchema.parse(request.body);
+    const input: StrategyUpdateInput = strategyUpdateSchema.parse(request.body);
 
     // Verify ownership
     const existing = await getStrategyById(id);
@@ -102,18 +102,18 @@ export async function strategyRoutes(app: FastifyInstance) {
     // Build update object
     const updateData: Record<string, unknown> = {};
     
-    if (input.name !== undefined) updateData.name = input.name;
-    if (input.yesLimitPrice !== undefined) updateData.yesLimitPrice = input.yesLimitPrice.toString();
-    if (input.noLimitPrice !== undefined) updateData.noLimitPrice = input.noLimitPrice.toString();
-    if (input.yesSize !== undefined) updateData.yesSize = input.yesSize.toString();
-    if (input.noSize !== undefined) updateData.noSize = input.noSize.toString();
-    if (input.frequencySeconds !== undefined) updateData.frequencySeconds = input.frequencySeconds;
-    if (input.maxRuns !== undefined) updateData.maxRuns = input.maxRuns;
-    if (input.enabled !== undefined) updateData.enabled = input.enabled;
-    if (input.minLiquidityUsdc !== undefined) updateData.minLiquidityUsdc = input.minLiquidityUsdc.toString();
-    if (input.maxSlippageFromMidpoint !== undefined) updateData.maxSlippageFromMidpoint = input.maxSlippageFromMidpoint.toString();
-    if (input.legTimeoutMs !== undefined) updateData.legTimeoutMs = input.legTimeoutMs;
-    if (input.autoCashOut !== undefined) updateData.autoCashOut = input.autoCashOut;
+    if (input['name'] !== undefined) updateData['name'] = input['name'];
+    if (input['yesLimitPrice'] !== undefined) updateData['yesLimitPrice'] = input['yesLimitPrice'].toString();
+    if (input['noLimitPrice'] !== undefined) updateData['noLimitPrice'] = input['noLimitPrice'].toString();
+    if (input['yesSize'] !== undefined) updateData['yesSize'] = input['yesSize'].toString();
+    if (input['noSize'] !== undefined) updateData['noSize'] = input['noSize'].toString();
+    if (input['frequencySeconds'] !== undefined) updateData['frequencySeconds'] = input['frequencySeconds'];
+    if (input['maxRuns'] !== undefined) updateData['maxRuns'] = input['maxRuns'];
+    if (input['enabled'] !== undefined) updateData['enabled'] = input['enabled'];
+    if (input['minLiquidityUsdc'] !== undefined) updateData['minLiquidityUsdc'] = input['minLiquidityUsdc'].toString();
+    if (input['maxSlippageFromMidpoint'] !== undefined) updateData['maxSlippageFromMidpoint'] = input['maxSlippageFromMidpoint'].toString();
+    if (input['legTimeoutMs'] !== undefined) updateData['legTimeoutMs'] = input['legTimeoutMs'];
+    if (input['autoCashOut'] !== undefined) updateData['autoCashOut'] = input['autoCashOut'];
 
     const strategy = await updateStrategy(id, updateData);
 

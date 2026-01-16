@@ -3,7 +3,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL || 
+  const connectionString = process.env['DATABASE_URL'] || 
     "postgresql://odie:odie_secret@localhost:5432/odie_polymarket";
   
   const sql = postgres(connectionString, { max: 1 });
