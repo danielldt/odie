@@ -1,0 +1,40 @@
+version: "3.8"
+
+# Development override - only runs infrastructure services
+# Apps are run locally with `pnpm dev`
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: odie-postgres-dev
+    environment:
+      POSTGRES_USER: odie
+      POSTGRES_PASSWORD: odie_secret
+      POSTGRES_DB: odie_polymarket
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odie -d odie_polymarket"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: odie-redis-dev
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

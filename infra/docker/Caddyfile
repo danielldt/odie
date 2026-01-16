@@ -1,0 +1,42 @@
+# Development Caddyfile
+# Replace yourdomain.com with your actual domain for production
+
+:80 {
+    # Frontend
+    handle /* {
+        reverse_proxy frontend:3000
+    }
+    
+    # API
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy api:3001
+    }
+    
+    # WebSocket for API
+    handle /ws/* {
+        reverse_proxy api:3001
+    }
+}
+
+# Production configuration (uncomment and modify for your domain)
+# yourdomain.com {
+#     # Enable automatic HTTPS
+#     tls your-email@example.com
+#     
+#     # Frontend
+#     handle /* {
+#         reverse_proxy frontend:3000
+#     }
+#     
+#     # API
+#     handle /api/* {
+#         uri strip_prefix /api
+#         reverse_proxy api:3001
+#     }
+#     
+#     # WebSocket
+#     handle /ws/* {
+#         reverse_proxy api:3001
+#     }
+# }

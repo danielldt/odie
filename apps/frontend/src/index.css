@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-gradient-start: #0a0a0a;
+  --bg-gradient-end: #1a1a2e;
+}
+
+body {
+  @apply bg-surface-950 text-surface-100 antialiased;
+  background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+  min-height: 100vh;
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-surface-950;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-500 focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-surface-800 text-surface-100 hover:bg-surface-700 focus:ring-surface-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-500 focus:ring-red-500;
+  }
+
+  .card {
+    @apply bg-surface-900/50 backdrop-blur-sm border border-surface-800 rounded-xl p-6;
+  }
+
+  .input {
+    @apply w-full px-4 py-2 bg-surface-800 border border-surface-700 rounded-lg text-surface-100 placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-surface-300 mb-1;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-pending {
+    @apply status-badge bg-yellow-500/20 text-yellow-400;
+  }
+
+  .status-running {
+    @apply status-badge bg-blue-500/20 text-blue-400;
+  }
+
+  .status-filled {
+    @apply status-badge bg-green-500/20 text-green-400;
+  }
+
+  .status-cancelled {
+    @apply status-badge bg-surface-500/20 text-surface-400;
+  }
+
+  .status-failed {
+    @apply status-badge bg-red-500/20 text-red-400;
+  }
+
+  .status-hedged {
+    @apply status-badge bg-orange-500/20 text-orange-400;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-surface-600;
+}
