@@ -25,12 +25,12 @@ FROM nginx:alpine AS runner
 # Copy built files
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
-# Remove default nginx config and create our own
+# Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Create simple nginx config listening on port 80
+# Create nginx config template (PORT will be substituted at runtime)
 RUN printf 'server {\n\
-    listen 80;\n\
+    listen $PORT;\n\
     server_name localhost;\n\
     root /usr/share/nginx/html;\n\
     index index.html;\n\
@@ -43,10 +43,10 @@ RUN printf 'server {\n\
     location / {\n\
         try_files $uri $uri/ /index.html;\n\
     }\n\
-}\n' > /etc/nginx/conf.d/default.conf
+}\n' > /etc/nginx/templates/default.conf.template
 
-# Expose port 80
-EXPOSE 80
+# Default port (Railway will override this)
+ENV PORT=3000
 
-# Start nginx
+# nginx:alpine auto-substitutes env vars in /etc/nginx/templates/*.template files
 CMD ["nginx", "-g", "daemon off;"]
