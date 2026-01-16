@@ -6,7 +6,6 @@
     "watchPatterns": ["apps/frontend/**", "packages/shared/**"]
   },
   "deploy": {
-    "startCommand": "/start.sh",
     "restartPolicyType": "ON_FAILURE",
     "healthcheckPath": "/",
     "healthcheckTimeout": 30

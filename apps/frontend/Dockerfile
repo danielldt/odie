@@ -25,30 +25,28 @@ FROM nginx:alpine AS runner
 # Copy built files
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
-# Create nginx config template with PORT placeholder
-RUN echo 'server { \
-    listen PORT_PLACEHOLDER; \
-    server_name localhost; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    gzip on; \
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript; \
-    location /assets/ { \
-        expires 1y; \
-        add_header Cache-Control "public, immutable"; \
-    } \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf.template
+# Remove default nginx config and create our own
+RUN rm /etc/nginx/conf.d/default.conf
 
-# Create startup script
-RUN echo '#!/bin/sh' > /start.sh && \
-    echo 'sed "s/PORT_PLACEHOLDER/$PORT/g" /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf' >> /start.sh && \
-    echo 'exec nginx -g "daemon off;"' >> /start.sh && \
-    chmod +x /start.sh
+# Create simple nginx config listening on port 80
+RUN printf 'server {\n\
+    listen 80;\n\
+    server_name localhost;\n\
+    root /usr/share/nginx/html;\n\
+    index index.html;\n\
+    gzip on;\n\
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;\n\
+    location /assets/ {\n\
+        expires 1y;\n\
+        add_header Cache-Control "public, immutable";\n\
+    }\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
 
-# Default port
-ENV PORT=3000
+# Expose port 80
+EXPOSE 80
 
-ENTRYPOINT ["/start.sh"]
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
