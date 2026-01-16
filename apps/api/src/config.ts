@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  // Railway provides PORT, fallback to API_PORT for local dev
+  PORT: z.coerce.number().optional(),
   API_PORT: z.coerce.number().default(3001),
   API_HOST: z.string().default("0.0.0.0"),
   DATABASE_URL: z.string(),
@@ -13,11 +15,25 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().default("http://localhost:3000"),
 });
 
-const env = envSchema.parse(process.env);
+let env: z.infer<typeof envSchema>;
+
+try {
+  env = envSchema.parse(process.env);
+} catch (error) {
+  if (error instanceof z.ZodError) {
+    console.error("❌ Invalid environment variables:");
+    error.errors.forEach((err) => {
+      console.error(`  - ${err.path.join(".")}: ${err.message}`);
+    });
+    process.exit(1);
+  }
+  throw error;
+}
 
 export const config = {
   env: env.NODE_ENV,
-  port: env.API_PORT,
+  // Use PORT (Railway) if available, otherwise API_PORT
+  port: env.PORT || env.API_PORT,
   host: env.API_HOST,
   databaseUrl: env.DATABASE_URL,
   redisUrl: env.REDIS_URL,
