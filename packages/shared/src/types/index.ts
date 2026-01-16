@@ -100,8 +100,6 @@ export interface Strategy {
   updatedAt: Date;
 }
 
-export type StrategyCreateInput = Omit<Strategy, "id" | "createdAt" | "updatedAt">;
-export type StrategyUpdateInput = Partial<StrategyCreateInput>;
 
 // ============================================
 // Trade Run Types

@@ -66,7 +66,26 @@ export const strategyCreateSchema = z.object({
   { message: "YES + NO prices must be less than 1 minus fee buffer for arbitrage edge" }
 );
 
-export const strategyUpdateSchema = strategyCreateSchema.partial().omit({
+// Base schema without refinement for partial updates
+const strategyBaseSchema = z.object({
+  marketId: z.string(),
+  name: z.string().min(1).max(100),
+  yesTokenId: z.string(),
+  noTokenId: z.string(),
+  yesLimitPrice: z.number().min(0.001).max(0.999),
+  noLimitPrice: z.number().min(0.001).max(0.999),
+  yesSize: z.number().positive(),
+  noSize: z.number().positive(),
+  frequencySeconds: z.number().int().min(60),
+  maxRuns: z.number().int().positive().nullable().optional(),
+  enabled: z.boolean().optional().default(true),
+  minLiquidityUsdc: z.number().positive().optional().default(SAFETY_DEFAULTS.MIN_LIQUIDITY_USDC),
+  maxSlippageFromMidpoint: z.number().min(0).max(1).optional().default(SAFETY_DEFAULTS.MAX_SLIPPAGE_FROM_MIDPOINT),
+  legTimeoutMs: z.number().int().positive().optional().default(SAFETY_DEFAULTS.DEFAULT_LEG_TIMEOUT_MS),
+  autoCashOut: z.boolean().optional().default(true),
+});
+
+export const strategyUpdateSchema = strategyBaseSchema.partial().omit({
   marketId: true,
   yesTokenId: true,
   noTokenId: true,
