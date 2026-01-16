@@ -4,12 +4,12 @@ RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 # Install dependencies
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY package.json pnpm-workspace.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
 COPY packages/polymarket-client/package.json ./packages/polymarket-client/
 COPY apps/worker/package.json ./apps/worker/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Build
 FROM base AS builder
@@ -37,7 +37,7 @@ COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
 COPY --from=builder /app/apps/worker/package.json ./apps/worker/
 
 COPY package.json pnpm-workspace.yaml ./
-RUN pnpm install --prod --frozen-lockfile
+RUN pnpm install --prod --no-frozen-lockfile
 
 WORKDIR /app/apps/worker
 CMD ["node", "dist/index.js"]
