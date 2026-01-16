@@ -6,6 +6,7 @@
     "watchPatterns": ["apps/frontend/**", "packages/shared/**"]
   },
   "deploy": {
+    "startCommand": "nginx -g 'daemon off;'",
     "restartPolicyType": "ON_FAILURE",
     "healthcheckPath": "/",
     "healthcheckTimeout": 30
