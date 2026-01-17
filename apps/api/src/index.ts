@@ -1,8 +1,43 @@
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { logger } from "./lib/logger.js";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+async function runMigrations() {
+  logger.info("Running database migrations...");
+  
+  const sql = postgres(config.databaseUrl, { max: 1 });
+  const db = drizzle(sql);
+  
+  try {
+    // In Docker: /app/apps/api/dist/index.js -> /app/packages/db/drizzle
+    // __dirname is /app/apps/api/dist, so go up to /app then to packages/db/drizzle
+    const migrationsPath = join(__dirname, "../../../packages/db/drizzle");
+    await migrate(db, { migrationsFolder: migrationsPath });
+    logger.info("Migrations complete!");
+  } catch (err) {
+    logger.error(err, "Migration failed");
+    throw err;
+  } finally {
+    await sql.end();
+  }
+}
 
 async function main() {
+  // Run migrations before starting server
+  try {
+    await runMigrations();
+  } catch (err) {
+    logger.error(err, "Failed to run migrations, continuing anyway...");
+  }
+
   const app = await createApp();
 
   try {

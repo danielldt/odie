@@ -34,6 +34,7 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/dist ./packages/db/dist
 COPY --from=builder /app/packages/db/package.json ./packages/db/
+COPY --from=builder /app/packages/db/drizzle ./packages/db/drizzle
 COPY --from=builder /app/packages/polymarket-client/dist ./packages/polymarket-client/dist
 COPY --from=builder /app/packages/polymarket-client/package.json ./packages/polymarket-client/
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
