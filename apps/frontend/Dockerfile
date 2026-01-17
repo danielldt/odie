@@ -29,9 +29,11 @@ RUN npm install -g serve
 # Copy built files
 COPY --from=builder /app/apps/frontend/dist ./dist
 
+# Create start script that properly reads PORT
+RUN printf '#!/bin/sh\nexec serve -s dist -p "${PORT:-3000}"\n' > /start.sh && chmod +x /start.sh
+
 # Default port (Railway provides PORT)
 ENV PORT=3000
 EXPOSE 3000
 
-# Serve static files with SPA fallback
-CMD ["sh", "-c", "exec serve -s dist -l ${PORT:-3000}"]
+CMD ["/start.sh"]
