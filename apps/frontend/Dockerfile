@@ -19,34 +19,19 @@ COPY . .
 RUN pnpm --filter @odie/shared build
 RUN pnpm --filter @odie/frontend build
 
-# Production - serve with nginx
-FROM nginx:alpine AS runner
+# Production - simple Node.js static server
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Install serve globally
+RUN npm install -g serve
 
 # Copy built files
-COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
+COPY --from=builder /app/apps/frontend/dist ./dist
 
-# Remove default nginx config and create templates directory
-RUN rm /etc/nginx/conf.d/default.conf && mkdir -p /etc/nginx/templates
-
-# Create nginx config template (PORT will be substituted at runtime)
-RUN printf 'server {\n\
-    listen $PORT;\n\
-    server_name localhost;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-    gzip on;\n\
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;\n\
-    location /assets/ {\n\
-        expires 1y;\n\
-        add_header Cache-Control "public, immutable";\n\
-    }\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/templates/default.conf.template
-
-# Default port (Railway will override this)
+# Default port (Railway provides PORT)
 ENV PORT=3000
+EXPOSE 3000
 
-# nginx:alpine auto-substitutes env vars in /etc/nginx/templates/*.template files
-CMD ["nginx", "-g", "daemon off;"]
+# Serve static files with SPA fallback
+CMD ["sh", "-c", "serve -s dist -l $PORT"]
