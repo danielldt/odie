@@ -33,5 +33,5 @@ COPY --from=builder /app/apps/frontend/dist ./dist
 ENV PORT=3000
 EXPOSE 3000
 
-# Serve static files with SPA fallback - listen on 0.0.0.0
-CMD sh -c "serve -s dist -l tcp://0.0.0.0:$PORT"
+# Serve static files with SPA fallback
+CMD ["sh", "-c", "exec serve -s dist -l ${PORT:-3000}"]
