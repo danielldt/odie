@@ -49,12 +49,13 @@ export function LoginPage() {
               <label htmlFor="email" className="label">Email</label>
               <input
                 id="email"
-                type="email"
+                type="text"
+                inputMode="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
                 placeholder="you@example.com"
-                required
               />
             </div>
 
