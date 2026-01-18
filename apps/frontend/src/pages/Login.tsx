@@ -14,6 +14,17 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (!email.trim()) {
+      setError("Email is required");
+      return;
+    }
+
+    if (!password) {
+      setError("Password is required");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -68,7 +79,6 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="input"
                 placeholder="••••••••"
-                required
               />
             </div>
 
