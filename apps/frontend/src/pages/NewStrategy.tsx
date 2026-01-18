@@ -96,7 +96,7 @@ export function NewStrategyPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
         {/* Market selection */}
         <div className="card">
           <h2 className="text-lg font-display font-semibold mb-4">Select Market</h2>

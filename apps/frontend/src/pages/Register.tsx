@@ -16,6 +16,16 @@ export function RegisterPage() {
     e.preventDefault();
     setError("");
 
+    if (!email.trim()) {
+      setError("Email is required");
+      return;
+    }
+
+    if (!password) {
+      setError("Password is required");
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match");
       return;
@@ -80,8 +90,6 @@ export function RegisterPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="input"
                 placeholder="••••••••"
-                required
-                minLength={8}
               />
             </div>
 
@@ -94,7 +102,6 @@ export function RegisterPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="input"
                 placeholder="••••••••"
-                required
               />
             </div>
 
