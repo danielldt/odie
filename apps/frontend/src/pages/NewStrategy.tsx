@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useDeferredValue } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { marketsApi, strategiesApi } from "../lib/api";
@@ -8,6 +8,7 @@ export function NewStrategyPage() {
   const queryClient = useQueryClient();
   
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search); // Debounce search
   const [selectedMarket, setSelectedMarket] = useState<any>(null);
   const [error, setError] = useState("");
 
@@ -22,8 +23,10 @@ export function NewStrategyPage() {
   const [autoCashOut, setAutoCashOut] = useState(true);
 
   const { data: marketsData, isLoading: marketsLoading } = useQuery({
-    queryKey: ["markets", search],
-    queryFn: () => marketsApi.list({ search, active: true, limit: 20 }),
+    queryKey: ["markets", deferredSearch],
+    queryFn: () => marketsApi.list({ search: deferredSearch, active: true, limit: 50 }),
+    // Don't refetch on window focus for search
+    refetchOnWindowFocus: false,
   });
 
   const createMutation = useMutation({

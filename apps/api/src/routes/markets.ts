@@ -15,24 +15,29 @@ export async function marketRoutes(app: FastifyInstance) {
     const params = marketsQuerySchema.parse(request.query);
     
     try {
+      // When searching, fetch more markets to search through
+      const fetchLimit = params.search ? 500 : params.limit;
+      
       // Fetch from Polymarket Gamma API directly
       const gammaResponse = await gammaApi.getMarkets({
         active: params.active ?? true,
-        limit: params.limit,
-        offset: params.offset,
+        limit: fetchLimit,
+        offset: params.search ? 0 : params.offset, // Start from 0 when searching
       });
 
       let markets = gammaResponse.markets;
 
       // Filter by search term if provided
       if (params.search) {
-        const searchLower = params.search.toLowerCase();
-        markets = markets.filter(
-          (m) =>
-            m.question?.toLowerCase().includes(searchLower) ||
-            m.slug?.toLowerCase().includes(searchLower) ||
-            m.description?.toLowerCase().includes(searchLower)
-        );
+        const searchTerms = params.search.toLowerCase().split(/\s+/);
+        markets = markets.filter((m) => {
+          const text = `${m.question || ""} ${m.slug || ""} ${m.description || ""}`.toLowerCase();
+          // Match if ALL search terms are found
+          return searchTerms.every(term => text.includes(term));
+        });
+        
+        // Apply pagination after filtering
+        markets = markets.slice(params.offset, params.offset + params.limit);
       }
 
       // Transform to our format
