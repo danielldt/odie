@@ -273,8 +273,9 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
     if (!activeMarket) {
       logger.warn({ 
         seriesSlug, 
-        totalFound: markets.length,
-        reason: markets.length === 0 ? "search returned no results" : "all markets filtered out (closed or too new)"
+        btc15mFound: btc15mMarkets.length,
+        eligibleCount: eligibleMarkets.length,
+        reason: btc15mMarkets.length === 0 ? "no BTC 15-min markets found" : "all markets closed or not accepting orders"
       }, "No active market found in series");
       return null;
     }
