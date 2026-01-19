@@ -140,12 +140,109 @@ interface ExecuteRunParams {
   wsManager: ClobWsManager;
 }
 
+// Resolve active market from series slug
+async function resolveMarketFromSeries(seriesSlug: string): Promise<{
+  marketId: string;
+  yesTokenId: string;
+  noTokenId: string;
+  question: string;
+} | null> {
+  try {
+    // Search for active markets in this series
+    const response = await fetch(
+      `https://gamma-api.polymarket.com/public-search?query=${encodeURIComponent(seriesSlug)}`
+    );
+    
+    if (!response.ok) {
+      logger.error({ seriesSlug, status: response.status }, "Failed to search for markets");
+      return null;
+    }
+
+    const markets = await response.json() as any[];
+    
+    // Find the first active, non-closed market that's accepting orders
+    const activeMarket = markets.find(
+      (m: any) => !m.closed && m.acceptingOrders !== false && m.active
+    );
+
+    if (!activeMarket) {
+      logger.warn({ seriesSlug, totalFound: markets.length }, "No active market found in series");
+      return null;
+    }
+
+    // Parse token IDs from clobTokenIds string (it's a JSON array string)
+    let tokenIds: string[] = [];
+    try {
+      tokenIds = JSON.parse(activeMarket.clobTokenIds || "[]");
+    } catch {
+      logger.error({ clobTokenIds: activeMarket.clobTokenIds }, "Failed to parse token IDs");
+      return null;
+    }
+
+    if (tokenIds.length < 2) {
+      logger.error({ tokenIds }, "Market doesn't have enough token IDs");
+      return null;
+    }
+
+    // First token is YES, second is NO (standard Polymarket convention)
+    return {
+      marketId: activeMarket.id,
+      yesTokenId: tokenIds[0]!,
+      noTokenId: tokenIds[1]!,
+      question: activeMarket.question,
+    };
+  } catch (error) {
+    logger.error(error, "Error resolving market from series");
+    return null;
+  }
+}
+
 async function executeRun(params: ExecuteRunParams) {
   const { strategy, credentials, walletAddress, idempotencyKey, scheduledFor, wsManager } = params;
   
   if (!strategy) throw new Error("Strategy is null");
 
   const clobRest = createClobRestClient(credentials, config.polymarket.clobUrl);
+  const runLogger = logger.child({ strategyId: strategy.id, seriesSlug: strategy.seriesSlug });
+
+  // For series-based strategies, resolve the current active market
+  let marketId = strategy.marketId;
+  let yesTokenId = strategy.yesTokenId;
+  let noTokenId = strategy.noTokenId;
+  let limitPrice = parseFloat(strategy.limitPrice || strategy.yesLimitPrice || "0.49");
+  let positionSize = parseFloat(strategy.positionSizeUsdc || "50");
+
+  if (strategy.seriesSlug) {
+    runLogger.info({ seriesSlug: strategy.seriesSlug }, "Resolving market from series...");
+    
+    const resolved = await resolveMarketFromSeries(strategy.seriesSlug);
+    if (!resolved) {
+      runLogger.warn("No active market found in series, skipping run");
+      return { skipped: true, reason: "no_active_market" };
+    }
+
+    marketId = resolved.marketId;
+    yesTokenId = resolved.yesTokenId;
+    noTokenId = resolved.noTokenId;
+    
+    runLogger.info({ marketId, question: resolved.question }, "Found active market");
+  }
+
+  if (!yesTokenId || !noTokenId) {
+    throw new Error("Missing token IDs for strategy");
+  }
+
+  // Calculate contract sizes from position size
+  // positionSize is split 50/50 between YES and NO
+  const sizePerSide = positionSize / 2;
+  const contractsPerSide = sizePerSide / limitPrice;
+
+  runLogger.info({
+    limitPrice,
+    positionSize,
+    contractsPerSide,
+    edge: (1 - limitPrice * 2) * 100 + "%"
+  }, "Trade parameters calculated");
 
   // Create trade run record
   const run = await createTradeRun({
@@ -160,86 +257,189 @@ async function executeRun(params: ExecuteRunParams) {
     throw new Error("Failed to create trade run");
   }
 
-  const runLogger = logger.child({ runId: run.id, strategyId: strategy.id });
+  const tradeLogger = runLogger.child({ runId: run.id });
 
   try {
     // 1. Validate balance
-    runLogger.info("Validating balance...");
-    await validateBalance(walletAddress, strategy);
+    tradeLogger.info("Validating balance...");
+    const usdcAvailable = await dataApi.getAvailableUsdc(walletAddress);
+    const worstCase = positionSize * 1.01; // 1% buffer for fees
+    
+    if (usdcAvailable < worstCase) {
+      throw new Error(`Insufficient USDC: have ${usdcAvailable}, need ${worstCase}`);
+    }
 
-    // 2. Validate prices and liquidity
-    runLogger.info("Validating prices and liquidity...");
-    await validatePricesAndLiquidity(strategy, wsManager);
+    // 2. Place both orders
+    tradeLogger.info("Placing dual-leg orders...");
+    
+    const yesClientOrderId = generateClientOrderId(run.id, "YES");
+    const noClientOrderId = generateClientOrderId(run.id, "NO");
 
-    // 3. Place both orders
-    runLogger.info("Placing dual-leg orders...");
-    const orderResult = await placeDualLegOrders(run.id, strategy, clobRest, wsManager);
+    // Create order records
+    const orderRecords = await createOrders([
+      {
+        tradeRunId: run.id,
+        clientOrderId: yesClientOrderId,
+        tokenId: yesTokenId,
+        side: "BUY",
+        price: limitPrice.toString(),
+        size: contractsPerSide.toString(),
+      },
+      {
+        tradeRunId: run.id,
+        clientOrderId: noClientOrderId,
+        tokenId: noTokenId,
+        side: "BUY",
+        price: limitPrice.toString(),
+        size: contractsPerSide.toString(),
+      },
+    ]);
 
-    // 4. Monitor fills with timeout
-    runLogger.info("Monitoring fills...");
-    const fillResult = await monitorAndHedge(
-      run.id,
-      strategy,
-      orderResult,
-      clobRest,
-      wsManager,
-      runLogger
-    );
+    // Place batch orders via CLOB REST
+    const batchResponse = await clobRest.placeBatchOrders([
+      {
+        tokenId: yesTokenId,
+        side: "BUY",
+        price: limitPrice,
+        size: contractsPerSide,
+        clientOrderId: yesClientOrderId,
+      },
+      {
+        tokenId: noTokenId,
+        side: "BUY",
+        price: limitPrice,
+        size: contractsPerSide,
+        clientOrderId: noClientOrderId,
+      },
+    ]);
 
-    // 5. Handle result
-    if (fillResult.status === "BOTH_FILLED") {
-      runLogger.info("Both legs filled");
+    // Update order records with CLOB order IDs
+    const yesResponse = batchResponse.orders[0];
+    const noResponse = batchResponse.orders[1];
+    const yesOrderRecord = orderRecords[0];
+    const noOrderRecord = orderRecords[1];
 
-      // Calculate entry costs
-      const entryYesCost = parseFloat(strategy.yesLimitPrice) * parseFloat(strategy.yesSize);
-      const entryNoCost = parseFloat(strategy.noLimitPrice) * parseFloat(strategy.noSize);
+    if (yesResponse && yesOrderRecord) {
+      await updateOrder(yesOrderRecord.id, {
+        clobOrderId: yesResponse.orderId,
+        status: "open",
+        placedAt: new Date(),
+      });
+    }
 
-      // Update run with entry info
+    if (noResponse && noOrderRecord) {
+      await updateOrder(noOrderRecord.id, {
+        clobOrderId: noResponse.orderId,
+        status: "open",
+        placedAt: new Date(),
+      });
+    }
+
+    // 3. Monitor fills with timeout
+    tradeLogger.info("Monitoring fills...");
+    
+    const deadline = Date.now() + (strategy.legTimeoutMs || 30000);
+    const fillState = { yesFilled: false, noFilled: false };
+
+    while (Date.now() < deadline) {
+      // Poll order status
+      try {
+        if (yesResponse?.orderId && !fillState.yesFilled) {
+          const status = await clobRest.getOrder(yesResponse.orderId);
+          if (status.status === "FILLED") fillState.yesFilled = true;
+        }
+        if (noResponse?.orderId && !fillState.noFilled) {
+          const status = await clobRest.getOrder(noResponse.orderId);
+          if (status.status === "FILLED") fillState.noFilled = true;
+        }
+      } catch (e) {
+        tradeLogger.warn(e, "Error polling order status");
+      }
+
+      if (fillState.yesFilled && fillState.noFilled) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    // 4. Handle result
+    const entryCost = positionSize;
+
+    if (fillState.yesFilled && fillState.noFilled) {
+      tradeLogger.info("Both legs filled! Cashing out immediately...");
+
       await updateTradeRun(run.id, {
         status: "filled",
-        entryYesCost: entryYesCost.toString(),
-        entryNoCost: entryNoCost.toString(),
-        endedAt: new Date(),
+        entryYesCost: (limitPrice * contractsPerSide).toString(),
+        entryNoCost: (limitPrice * contractsPerSide).toString(),
       });
 
-      // Auto cash-out if enabled
-      if (strategy.autoCashOut) {
-        runLogger.info("Auto cash-out enabled, exiting positions...");
-        await autoCashOut(run.id, strategy, clobRest, wsManager, runLogger);
-      }
-
-      return { status: "filled", runId: run.id };
-    } else {
-      // Hedged or cancelled
-      runLogger.warn({ result: fillResult }, "Run completed with hedge/cancel");
-
-      await updateTradeRun(run.id, {
-        status: fillResult.status === "HEDGED" ? "hedged" : "cancelled",
-        endedAt: new Date(),
-        errorMessage: fillResult.message,
-      });
-
-      return { status: fillResult.status, runId: run.id };
-    }
-  } catch (error) {
-    runLogger.error(error, "Run execution failed");
-
-    // Cancel any open orders
-    try {
-      const orders = await getOrdersForRun(run.id);
-      const openOrders = orders.filter(
-        (o) => o.clobOrderId && ["pending", "open", "partially_filled"].includes(o.status)
+      // ALWAYS cash out immediately to free funds for next trade
+      const cashOutResult = await autoCashOut(
+        {
+          runId: run.id,
+          userId: strategy.userId,
+          marketId: marketId || "unknown",
+          yesTokenId,
+          noTokenId,
+          yesSize: contractsPerSide,
+          noSize: contractsPerSide,
+          entryCost,
+        },
+        clobRest,
+        tradeLogger
       );
-      
-      for (const order of openOrders) {
-        if (order.clobOrderId) {
-          await clobRest.cancelOrder(order.clobOrderId);
-          await updateOrder(order.id, { status: "cancelled", cancelledAt: new Date() });
-        }
-      }
-    } catch (cancelError) {
-      runLogger.error(cancelError, "Failed to cancel orders during cleanup");
+
+      await updateTradeRun(run.id, { status: "filled", endedAt: new Date() });
+
+      return { status: "filled", runId: run.id, pnl: cashOutResult.pnl };
     }
+
+    // Handle partial fills - hedge and cancel
+    if (fillState.yesFilled && !fillState.noFilled) {
+      tradeLogger.warn("YES filled but NO didn't - hedging...");
+      if (noResponse?.orderId) await clobRest.cancelOrder(noResponse.orderId);
+      
+      // Sell YES to neutralize
+      await clobRest.placeOrder({
+        tokenId: yesTokenId,
+        side: "SELL",
+        price: 0.01,
+        size: contractsPerSide,
+        clientOrderId: generateClientOrderId(run.id, "HEDGE-YES"),
+        timeInForce: "IOC",
+      });
+
+      await updateTradeRun(run.id, { status: "hedged", endedAt: new Date(), errorMessage: "YES filled, NO cancelled" });
+      return { status: "hedged", runId: run.id };
+    }
+
+    if (!fillState.yesFilled && fillState.noFilled) {
+      tradeLogger.warn("NO filled but YES didn't - hedging...");
+      if (yesResponse?.orderId) await clobRest.cancelOrder(yesResponse.orderId);
+      
+      // Sell NO to neutralize
+      await clobRest.placeOrder({
+        tokenId: noTokenId,
+        side: "SELL",
+        price: 0.01,
+        size: contractsPerSide,
+        clientOrderId: generateClientOrderId(run.id, "HEDGE-NO"),
+        timeInForce: "IOC",
+      });
+
+      await updateTradeRun(run.id, { status: "hedged", endedAt: new Date(), errorMessage: "NO filled, YES cancelled" });
+      return { status: "hedged", runId: run.id };
+    }
+
+    // Neither filled - cancel both
+    tradeLogger.info("Neither leg filled, cancelling both");
+    if (yesResponse?.orderId) await clobRest.cancelOrder(yesResponse.orderId);
+    if (noResponse?.orderId) await clobRest.cancelOrder(noResponse.orderId);
+
+    await updateTradeRun(run.id, { status: "cancelled", endedAt: new Date(), errorMessage: "Neither leg filled" });
+    return { status: "cancelled", runId: run.id };
+
+  } catch (error) {
+    tradeLogger.error(error, "Run execution failed");
 
     await updateTradeRun(run.id, {
       status: "failed",
@@ -251,66 +451,12 @@ async function executeRun(params: ExecuteRunParams) {
   }
 }
 
-async function validateBalance(walletAddress: string, strategy: NonNullable<Awaited<ReturnType<typeof getStrategyById>>>) {
-  const usdcAvailable = await dataApi.getAvailableUsdc(walletAddress);
-  
-  const costYes = parseFloat(strategy.yesSize) * parseFloat(strategy.yesLimitPrice);
-  const costNo = parseFloat(strategy.noSize) * parseFloat(strategy.noLimitPrice);
-  const worstCase = (costYes + costNo) * 1.01; // 1% buffer for fees
+// Old functions removed - logic integrated into executeRun
 
-  if (usdcAvailable < worstCase) {
-    throw new Error(`Insufficient USDC: have ${usdcAvailable}, need ${worstCase}`);
-  }
-}
+/* REMOVED: validateBalance, validatePricesAndLiquidity, placeDualLegOrders, monitorAndHedge, neutralizeLeg */
 
-async function validatePricesAndLiquidity(
-  strategy: NonNullable<Awaited<ReturnType<typeof getStrategyById>>>,
-  wsManager: ClobWsManager
-) {
-  const yesPrice = parseFloat(strategy.yesLimitPrice);
-  const noPrice = parseFloat(strategy.noLimitPrice);
-
-  // Check arb condition: YES + NO < 1 - feeBuffer
-  if (yesPrice + noPrice >= 1 - SAFETY_DEFAULTS.FEE_BUFFER) {
-    throw new Error(`No arbitrage edge: YES(${yesPrice}) + NO(${noPrice}) >= ${1 - SAFETY_DEFAULTS.FEE_BUFFER}`);
-  }
-
-  // Subscribe to orderbooks if not already
-  wsManager.subscribeOrderbook(strategy.yesTokenId);
-  wsManager.subscribeOrderbook(strategy.noTokenId);
-
-  // Wait briefly for orderbook data
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-
-  const yesBook = wsManager.getOrderbook(strategy.yesTokenId);
-  const noBook = wsManager.getOrderbook(strategy.noTokenId);
-
-  if (!yesBook || !noBook) {
-    logger.warn("Orderbook not available, proceeding with order placement");
-    return;
-  }
-
-  // Check liquidity at price levels
-  const minLiquidity = parseFloat(strategy.minLiquidityUsdc);
-  
-  const yesAskLiquidity = yesBook.asks
-    .filter((a) => a.price <= yesPrice)
-    .reduce((sum, a) => sum + a.size * a.price, 0);
-  
-  const noAskLiquidity = noBook.asks
-    .filter((a) => a.price <= noPrice)
-    .reduce((sum, a) => sum + a.size * a.price, 0);
-
-  if (yesAskLiquidity < minLiquidity) {
-    throw new Error(`Insufficient YES liquidity: ${yesAskLiquidity} < ${minLiquidity}`);
-  }
-
-  if (noAskLiquidity < minLiquidity) {
-    throw new Error(`Insufficient NO liquidity: ${noAskLiquidity} < ${minLiquidity}`);
-  }
-}
-
-async function placeDualLegOrders(
+// Keep only autoCashOut which is still used
+async function _deprecated_placeDualLegOrders(
   runId: string,
   strategy: NonNullable<Awaited<ReturnType<typeof getStrategyById>>>,
   clobRest: ReturnType<typeof createClobRestClient>,
@@ -531,70 +677,84 @@ async function neutralizeLeg(
   });
 }
 
+interface CashOutParams {
+  runId: string;
+  userId: string;
+  marketId: string;
+  yesTokenId: string;
+  noTokenId: string;
+  yesSize: number;
+  noSize: number;
+  entryCost: number;
+}
+
 async function autoCashOut(
-  runId: string,
-  strategy: NonNullable<Awaited<ReturnType<typeof getStrategyById>>>,
+  params: CashOutParams,
   clobRest: ReturnType<typeof createClobRestClient>,
-  wsManager: ClobWsManager,
   runLogger: typeof logger
 ) {
-  try {
-    // Get current midpoints
-    const yesMidpoint = await clobRest.getMidpoint(strategy.yesTokenId);
-    const noMidpoint = await clobRest.getMidpoint(strategy.noTokenId);
+  const { runId, userId, marketId, yesTokenId, noTokenId, yesSize, noSize, entryCost } = params;
 
-    const yesSellPrice = parseFloat(yesMidpoint.mid) * 0.99; // Slightly below mid
-    const noSellPrice = parseFloat(noMidpoint.mid) * 0.99;
+  try {
+    // Get current midpoints for pricing
+    const yesMidpoint = await clobRest.getMidpoint(yesTokenId);
+    const noMidpoint = await clobRest.getMidpoint(noTokenId);
+
+    // Sell aggressively to ensure fill (99% of mid, or minimum 0.01)
+    const yesSellPrice = Math.max(0.01, parseFloat(yesMidpoint.mid) * 0.98);
+    const noSellPrice = Math.max(0.01, parseFloat(noMidpoint.mid) * 0.98);
 
     const yesClientOrderId = generateClientOrderId(runId, "EXIT-YES");
     const noClientOrderId = generateClientOrderId(runId, "EXIT-NO");
 
-    // Place sell orders
+    runLogger.info({ yesSellPrice, noSellPrice, yesSize, noSize }, "Placing cash-out orders");
+
+    // Place sell orders with IOC (Immediate-Or-Cancel) to ensure quick exit
     await clobRest.placeBatchOrders([
       {
-        tokenId: strategy.yesTokenId,
+        tokenId: yesTokenId,
         side: "SELL",
         price: yesSellPrice,
-        size: parseFloat(strategy.yesSize),
+        size: yesSize,
         clientOrderId: yesClientOrderId,
         timeInForce: "IOC",
       },
       {
-        tokenId: strategy.noTokenId,
+        tokenId: noTokenId,
         side: "SELL",
         price: noSellPrice,
-        size: parseFloat(strategy.noSize),
+        size: noSize,
         clientOrderId: noClientOrderId,
         timeInForce: "IOC",
       },
     ]);
 
-    // Calculate PnL
-    const entryYesCost = parseFloat(strategy.yesLimitPrice) * parseFloat(strategy.yesSize);
-    const entryNoCost = parseFloat(strategy.noLimitPrice) * parseFloat(strategy.noSize);
-    const exitYesProceeds = yesSellPrice * parseFloat(strategy.yesSize);
-    const exitNoProceeds = noSellPrice * parseFloat(strategy.noSize);
-    const pnl = (exitYesProceeds + exitNoProceeds) - (entryYesCost + entryNoCost);
+    // Calculate approximate PnL (actual may vary due to partial fills)
+    const exitYesProceeds = yesSellPrice * yesSize;
+    const exitNoProceeds = noSellPrice * noSize;
+    const totalProceeds = exitYesProceeds + exitNoProceeds;
+    const pnl = totalProceeds - entryCost;
 
     // Update trade run with exit info
     await updateTradeRun(runId, {
       exitYesProceeds: exitYesProceeds.toString(),
       exitNoProceeds: exitNoProceeds.toString(),
-      feesTotal: "0", // TODO: Calculate actual fees from fills
+      feesTotal: "0",
     });
 
     // Record PnL
     await upsertPnlRecord({
-      userId: strategy.userId,
-      marketId: strategy.marketId,
+      userId,
+      marketId,
       date: new Date().toISOString().split("T")[0]!,
       pnl: pnl.toString(),
-      volume: (entryYesCost + entryNoCost).toString(),
+      volume: entryCost.toString(),
       fees: "0",
       tradesCount: 1,
     });
 
-    runLogger.info({ pnl, exitYesProceeds, exitNoProceeds }, "Auto cash-out completed");
+    runLogger.info({ pnl, totalProceeds, entryCost }, "Auto cash-out completed - funds freed for next trade!");
+    return { pnl, totalProceeds };
   } catch (error) {
     runLogger.error(error, "Auto cash-out failed");
     throw error;
