@@ -4,12 +4,12 @@ RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 # Install dependencies
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
 COPY packages/polymarket-client/package.json ./packages/polymarket-client/
 COPY apps/api/package.json ./apps/api/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Build
 FROM base AS builder
@@ -30,6 +30,7 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Copy built packages
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/db/dist ./packages/db/dist
@@ -41,8 +42,8 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/
 
 # Install production dependencies only
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile
+COPY package.json pnpm-workspace.yaml ./
+RUN pnpm install --prod --no-frozen-lockfile
 
 WORKDIR /app/apps/api
 EXPOSE 3001

@@ -35,7 +35,9 @@ async function main() {
   try {
     await runMigrations();
   } catch (err) {
-    logger.error(err, "Failed to run migrations, continuing anyway...");
+    logger.error(err, "Failed to run migrations");
+    // Don't continue if migrations fail - the DB schema is required
+    process.exit(1);
   }
 
   const app = await createApp();
