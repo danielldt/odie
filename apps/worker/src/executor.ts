@@ -244,9 +244,9 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
       const response = await fetch(url);
       
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as any;
         // Handle both array and object responses
-        const markets = Array.isArray(data) ? data : (data.markets || data.data || []);
+        const markets: any[] = Array.isArray(data) ? data : (data.markets || data.data || []);
         logger.info({ url, count: markets.length }, "Search response");
         
         if (markets.length > 0) {
