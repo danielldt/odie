@@ -24,7 +24,8 @@ export function NewStrategyPage() {
 
   const { data: marketsData, isLoading: marketsLoading } = useQuery({
     queryKey: ["markets", deferredSearch],
-    queryFn: () => marketsApi.list({ search: deferredSearch, active: true, limit: 50 }),
+    // Don't filter by active - we want to see all markets including upcoming ones
+    queryFn: () => marketsApi.list({ search: deferredSearch, limit: 100 }),
     // Don't refetch on window focus for search
     refetchOnWindowFocus: false,
   });

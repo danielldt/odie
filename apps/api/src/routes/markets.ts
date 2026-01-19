@@ -19,8 +19,10 @@ export async function marketRoutes(app: FastifyInstance) {
       const fetchLimit = params.search ? 500 : params.limit;
       
       // Fetch from Polymarket Gamma API directly
+      // Don't filter by active by default - let frontend decide
       const gammaResponse = await gammaApi.getMarkets({
-        active: params.active ?? true,
+        active: params.active,
+        closed: false, // Don't show already resolved markets
         limit: fetchLimit,
         offset: params.search ? 0 : params.offset, // Start from 0 when searching
       });
