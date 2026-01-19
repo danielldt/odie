@@ -23,9 +23,9 @@ export async function authRoutes(app: FastifyInstance) {
       throw new BadRequestError("Email already registered");
     }
 
-    // Hash password
+    // Hash password (type 2 = argon2id)
     const passwordHash = await argon2.hash(password, {
-      type: argon2.argon2id,
+      type: 2,
       memoryCost: 65536,
       timeCost: 3,
       parallelism: 4,
