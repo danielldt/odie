@@ -195,46 +195,106 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
   endDate: Date | null;
 } | null> {
   try {
-    // Direct approach: fetch active markets and filter for BTC 15-min
     logger.info({ seriesSlug }, "Searching for active BTC 15-min markets...");
     
-    const response = await fetch(
-      `https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=200`
+    // Try the Series API endpoint first (for recurring markets like BTC 15-min)
+    // https://docs.polymarket.com - Gamma API has a /series endpoint
+    const seriesResponse = await fetch(
+      `https://gamma-api.polymarket.com/series/${seriesSlug}`
     );
     
-    if (!response.ok) {
-      logger.error({ status: response.status }, "Failed to fetch markets");
-      return null;
+    if (seriesResponse.ok) {
+      const seriesData = await seriesResponse.json() as any;
+      logger.info({ seriesData }, "Series API response");
+      
+      // Series might return the current active market directly
+      if (seriesData.markets && seriesData.markets.length > 0) {
+        const activeMarket = seriesData.markets.find((m: any) => 
+          m.active && !m.closed && m.acceptingOrders !== false
+        );
+        if (activeMarket) {
+          logger.info({ market: activeMarket }, "Found active market from series");
+          const tokenIds = JSON.parse(activeMarket.clobTokenIds || "[]");
+          if (tokenIds.length >= 2) {
+            return {
+              marketId: activeMarket.id,
+              yesTokenId: tokenIds[0],
+              noTokenId: tokenIds[1],
+              question: activeMarket.question,
+              endDate: activeMarket.endDate ? new Date(activeMarket.endDate) : null,
+            };
+          }
+        }
+      }
+    } else {
+      logger.info({ status: seriesResponse.status }, "Series endpoint not available, trying search...");
     }
 
-    const allMarkets = await response.json() as any[];
-    logger.info({ totalMarkets: allMarkets.length }, "Fetched all active markets");
+    // Fallback: Try multiple search approaches
+    const searchQueries = [
+      `https://gamma-api.polymarket.com/markets?slug_contains=${seriesSlug}&active=true&closed=false`,
+      `https://gamma-api.polymarket.com/markets?tag=crypto&active=true&closed=false&limit=100`,
+      `https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=500`,
+    ];
 
-    // Find BTC 15-min markets
+    let allMarkets: any[] = [];
+    
+    for (const url of searchQueries) {
+      logger.info({ url }, "Trying search URL...");
+      const response = await fetch(url);
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Handle both array and object responses
+        const markets = Array.isArray(data) ? data : (data.markets || data.data || []);
+        logger.info({ url, count: markets.length }, "Search response");
+        
+        if (markets.length > 0) {
+          allMarkets = markets;
+          break;
+        }
+      }
+    }
+
+    logger.info({ totalMarkets: allMarkets.length }, "Total markets fetched");
+
+    // Log some sample markets to see what's available
+    if (allMarkets.length > 0) {
+      logger.info({ 
+        samples: allMarkets.slice(0, 20).map((m: any) => ({
+          slug: m.slug,
+          question: m.question?.slice(0, 60),
+        }))
+      }, "Sample markets available");
+    }
+
+    // Find BTC 15-min markets with flexible matching
     const btc15mMarkets = allMarkets.filter((m: any) => {
       const slug = (m.slug || '').toLowerCase();
       const question = (m.question || '').toLowerCase();
       
-      // Match BTC 15-min markets by various patterns
-      const isBtc15m = 
+      // Match various BTC 15-min patterns
+      return (
         slug.includes('btc-updown-15m') ||
         slug.includes('btc-15m') ||
-        (slug.includes('btc') && slug.includes('15m')) ||
-        (question.includes('bitcoin') && question.includes('15 min')) ||
-        (question.includes('btc') && question.includes('15'));
-      
-      return isBtc15m;
+        slug.includes('bitcoin-15m') ||
+        (slug.includes('btc') && slug.includes('15')) ||
+        (question.includes('bitcoin') && question.includes('15')) ||
+        (question.includes('btc') && question.includes('15 min'))
+      );
     });
 
     logger.info({ 
       found: btc15mMarkets.length,
       markets: btc15mMarkets.map((m: any) => ({
+        id: m.id,
         slug: m.slug,
         question: m.question?.slice(0, 50),
         active: m.active,
         closed: m.closed,
         acceptingOrders: m.acceptingOrders,
         endDate: m.endDate,
+        clobTokenIds: m.clobTokenIds,
       }))
     }, "BTC 15-min markets found");
 
@@ -246,6 +306,10 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
       }
       if (m.acceptingOrders === false) {
         logger.info({ slug: m.slug }, "Skipped: not accepting orders");
+        return false;
+      }
+      if (!m.active) {
+        logger.info({ slug: m.slug }, "Skipped: not active");
         return false;
       }
       return true;
