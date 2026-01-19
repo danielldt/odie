@@ -104,9 +104,24 @@ export function createExecutor(wsManager: ClobWsManager) {
         });
 
         // Increment runs completed
-        const nextRunAt = strategy.enabled
-          ? new Date(Date.now() + strategy.frequencySeconds * 1000)
-          : null;
+        // For series-based strategies holding to resolution:
+        // Schedule next run AFTER the market resolves (so funds are available)
+        let nextRunAt: Date | null = null;
+        
+        if (strategy.enabled) {
+          if (result.marketEndDate) {
+            // Wait until market resolves + 1 minute buffer for settlement
+            nextRunAt = new Date(result.marketEndDate.getTime() + 60000);
+            logger.info({ 
+              marketEndDate: result.marketEndDate, 
+              nextRunAt 
+            }, "Scheduling next run after market resolution");
+          } else {
+            // Fallback to frequency-based scheduling
+            nextRunAt = new Date(Date.now() + strategy.frequencySeconds * 1000);
+          }
+        }
+        
         await incrementRunsCompleted(strategyId, nextRunAt);
 
         return result;
@@ -146,6 +161,7 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
   yesTokenId: string;
   noTokenId: string;
   question: string;
+  endDate: Date | null;
 } | null> {
   try {
     // Search for active markets in this series
@@ -190,6 +206,7 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
       yesTokenId: tokenIds[0]!,
       noTokenId: tokenIds[1]!,
       question: activeMarket.question,
+      endDate: activeMarket.endDate ? new Date(activeMarket.endDate) : null,
     };
   } catch (error) {
     logger.error(error, "Error resolving market from series");
@@ -211,6 +228,7 @@ async function executeRun(params: ExecuteRunParams) {
   let noTokenId = strategy.noTokenId;
   let limitPrice = parseFloat(strategy.limitPrice || strategy.yesLimitPrice || "0.49");
   let positionSize = parseFloat(strategy.positionSizeUsdc || "50");
+  let marketEndDate: Date | null = null;
 
   if (strategy.seriesSlug) {
     runLogger.info({ seriesSlug: strategy.seriesSlug }, "Resolving market from series...");
@@ -224,8 +242,13 @@ async function executeRun(params: ExecuteRunParams) {
     marketId = resolved.marketId;
     yesTokenId = resolved.yesTokenId;
     noTokenId = resolved.noTokenId;
+    marketEndDate = resolved.endDate;
     
-    runLogger.info({ marketId, question: resolved.question }, "Found active market");
+    runLogger.info({ 
+      marketId, 
+      question: resolved.question,
+      endDate: marketEndDate 
+    }, "Found active market");
   }
 
   if (!yesTokenId || !noTokenId) {
@@ -364,33 +387,45 @@ async function executeRun(params: ExecuteRunParams) {
     const entryCost = positionSize;
 
     if (fillState.yesFilled && fillState.noFilled) {
-      tradeLogger.info("Both legs filled! Cashing out immediately...");
+      tradeLogger.info("Both legs filled! Holding to resolution for guaranteed payout...");
+
+      const entryCostTotal = limitPrice * contractsPerSide * 2;
+      const guaranteedPayout = contractsPerSide; // $1 per contract pair
+      const expectedProfit = guaranteedPayout - entryCostTotal;
 
       await updateTradeRun(run.id, {
         status: "filled",
         entryYesCost: (limitPrice * contractsPerSide).toString(),
         entryNoCost: (limitPrice * contractsPerSide).toString(),
+        endedAt: new Date(),
       });
 
-      // ALWAYS cash out immediately to free funds for next trade
-      const cashOutResult = await autoCashOut(
-        {
-          runId: run.id,
-          userId: strategy.userId,
-          marketId: marketId || "unknown",
-          yesTokenId,
-          noTokenId,
-          yesSize: contractsPerSide,
-          noSize: contractsPerSide,
-          entryCost,
-        },
-        clobRest,
-        tradeLogger
-      );
+      // Record expected PnL (will be realized at market resolution)
+      await upsertPnlRecord({
+        userId: strategy.userId,
+        marketId: marketId || "unknown",
+        date: new Date().toISOString().split("T")[0]!,
+        pnl: expectedProfit.toString(),
+        volume: entryCostTotal.toString(),
+        fees: "0",
+        tradesCount: 1,
+      });
 
-      await updateTradeRun(run.id, { status: "filled", endedAt: new Date() });
+      tradeLogger.info({
+        entryCost: entryCostTotal,
+        guaranteedPayout,
+        expectedProfit,
+        marketEndDate,
+        message: "Position will auto-settle when market resolves"
+      }, "Trade complete - holding to resolution");
 
-      return { status: "filled", runId: run.id, pnl: cashOutResult.pnl };
+      // Return marketEndDate so scheduler knows when funds will be free
+      return { 
+        status: "filled", 
+        runId: run.id, 
+        expectedProfit,
+        marketEndDate, // Next trade should wait until after this
+      };
     }
 
     // Handle partial fills - hedge and cancel
