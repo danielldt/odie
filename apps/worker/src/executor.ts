@@ -183,7 +183,7 @@ interface ExecuteRunParams {
 }
 
 // Minimum time a market should be open before we trade it (avoid skewed prices at open)
-const MIN_MARKET_AGE_MS = 3 * 60 * 1000; // 3 minutes
+const MIN_MARKET_AGE_MS = 1 * 60 * 1000; // 1 minute (reduced from 3)
 
 // Resolve active market from series slug
 // Skips markets that just opened (prices often skewed)
@@ -245,53 +245,84 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
     logger.info({ 
       seriesSlug, 
       totalFound: markets.length,
-      sampleMarkets: markets.slice(0, 5).map((m: any) => ({
+      sampleMarkets: markets.slice(0, 10).map((m: any) => ({
         id: m.id,
         slug: m.slug,
-        question: m.question?.slice(0, 50),
+        question: m.question?.slice(0, 60),
         active: m.active,
         closed: m.closed,
         acceptingOrders: m.acceptingOrders,
         endDate: m.endDate,
+        startDate: m.startDate,
       }))
-    }, "Markets found");
+    }, "Markets found from API");
 
     // Filter for active markets that have been open for a while
     const baseSlug = seriesSlug.replace(/-\d+$/, '');
+    
+    // Log each market's filter status
+    markets.forEach((m: any) => {
+      const matchesSlug = m.slug?.toLowerCase().includes(baseSlug.toLowerCase());
+      const matchesQuestion = m.question?.toLowerCase().includes('btc') || 
+                              m.question?.toLowerCase().includes('bitcoin');
+      const isActive = m.active && !m.closed && m.acceptingOrders !== false;
+      
+      logger.info({
+        marketId: m.id,
+        slug: m.slug?.slice(0, 40),
+        matchesSlug,
+        matchesQuestion,
+        active: m.active,
+        closed: m.closed,
+        acceptingOrders: m.acceptingOrders,
+        isActive,
+        endDate: m.endDate,
+      }, "Market filter check");
+    });
+
     const eligibleMarkets = markets
       .filter((m: any) => {
-        // Check if market matches series pattern
-        const matchesSlug = m.slug?.toLowerCase().includes(baseSlug.toLowerCase());
-        const matchesQuestion = m.question?.toLowerCase().includes(baseSlug.replace(/-/g, ' ').toLowerCase());
+        // More lenient matching - just check if it's a BTC market
+        const isBtcMarket = m.slug?.toLowerCase().includes('btc') || 
+                           m.question?.toLowerCase().includes('btc') ||
+                           m.question?.toLowerCase().includes('bitcoin');
         
-        if (!matchesSlug && !matchesQuestion) {
+        // Check if it's a 15-min market
+        const is15MinMarket = m.slug?.includes('15m') || 
+                              m.question?.toLowerCase().includes('15 min') ||
+                              m.question?.toLowerCase().includes('15-min');
+        
+        if (!isBtcMarket) {
           return false;
         }
         
-        if (m.closed || m.acceptingOrders === false || !m.active) {
-          logger.debug({ 
-            marketId: m.id, 
-            slug: m.slug,
-            closed: m.closed, 
-            active: m.active, 
-            acceptingOrders: m.acceptingOrders 
-          }, "Market filtered out - not active/accepting orders");
+        if (m.closed) {
+          logger.debug({ slug: m.slug }, "Filtered: closed");
           return false;
         }
         
-        // Skip markets that just opened (prices are skewed)
+        if (!m.active) {
+          logger.debug({ slug: m.slug }, "Filtered: not active");
+          return false;
+        }
+        
+        if (m.acceptingOrders === false) {
+          logger.debug({ slug: m.slug }, "Filtered: not accepting orders");
+          return false;
+        }
+        
+        // Reduced minimum age to 1 minute (was 3)
         const acceptingOrdersTimestamp = m.acceptingOrdersTimestamp 
           ? new Date(m.acceptingOrdersTimestamp).getTime() 
           : (m.startDate ? new Date(m.startDate).getTime() : 0);
         const marketAge = now - acceptingOrdersTimestamp;
         
-        if (marketAge > 0 && marketAge < MIN_MARKET_AGE_MS) {
+        // Only filter if we have a valid timestamp and it's very new
+        if (acceptingOrdersTimestamp > 0 && marketAge < 60000) { // 1 minute
           logger.info({ 
-            marketId: m.id, 
-            question: m.question?.slice(0, 50),
-            ageMinutes: (marketAge / 60000).toFixed(1),
-            minAgeMinutes: MIN_MARKET_AGE_MS / 60000
-          }, "Skipping market - too new, prices may be skewed");
+            slug: m.slug,
+            ageSeconds: (marketAge / 1000).toFixed(0),
+          }, "Filtered: too new (< 1 min)");
           return false;
         }
         
