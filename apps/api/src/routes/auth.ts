@@ -37,9 +37,12 @@ export async function authRoutes(app: FastifyInstance) {
       passwordHash,
     });
 
-    if (!user) {
+    if (!user || !user.id) {
+      console.error("User creation failed or returned invalid user:", user);
       throw new BadRequestError("Failed to create user");
     }
+
+    console.log("User created successfully:", { id: user.id, email: user.email });
 
     // Generate tokens
     const payload: JwtPayload = { sub: user.id, email: user.email };
@@ -48,11 +51,19 @@ export async function authRoutes(app: FastifyInstance) {
     // Store refresh token hash
     const refreshTokenHash = hashToken(tokens.refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await createRefreshToken({
-      userId: user.id,
-      tokenHash: refreshTokenHash,
-      expiresAt,
-    });
+    
+    console.log("Creating refresh token for user:", user.id);
+    
+    try {
+      await createRefreshToken({
+        userId: user.id,
+        tokenHash: refreshTokenHash,
+        expiresAt,
+      });
+    } catch (err) {
+      console.error("Failed to create refresh token:", err);
+      throw err;
+    }
 
     return reply.status(201).send({
       user: { id: user.id, email: user.email },

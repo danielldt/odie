@@ -3,24 +3,22 @@ import { db } from "../client.js";
 import { wallets, type NewWallet } from "../schema/wallets.js";
 
 export async function createWallet(data: NewWallet) {
-  const [wallet] = await db.insert(wallets).values(data).returning();
-  return wallet;
+  const result = await db.insert(wallets).values(data).returning();
+  return result[0];
 }
 
 export async function getWalletByAddress(address: string) {
-  return db.query.wallets.findFirst({
-    where: eq(wallets.address, address.toLowerCase()),
-  });
+  const result = await db.select().from(wallets).where(eq(wallets.address, address.toLowerCase())).limit(1);
+  return result[0] ?? null;
 }
 
 export async function getWalletById(id: string) {
-  return db.query.wallets.findFirst({
-    where: eq(wallets.id, id),
-  });
+  if (!id) return null;
+  const result = await db.select().from(wallets).where(eq(wallets.id, id)).limit(1);
+  return result[0] ?? null;
 }
 
 export async function getUserWallets(userId: string) {
-  return db.query.wallets.findMany({
-    where: eq(wallets.userId, userId),
-  });
+  if (!userId) return [];
+  return db.select().from(wallets).where(eq(wallets.userId, userId));
 }

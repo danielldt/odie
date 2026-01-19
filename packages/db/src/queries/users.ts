@@ -3,35 +3,39 @@ import { db } from "../client.js";
 import { users, refreshTokens, type NewUser, type NewRefreshToken } from "../schema/users.js";
 
 export async function createUser(data: NewUser) {
-  const [user] = await db.insert(users).values(data).returning();
-  return user;
+  const result = await db.insert(users).values(data).returning();
+  return result[0];
 }
 
 export async function getUserByEmail(email: string) {
-  return db.query.users.findFirst({
-    where: eq(users.email, email),
-  });
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return result[0] ?? null;
 }
 
 export async function getUserById(id: string) {
-  return db.query.users.findFirst({
-    where: eq(users.id, id),
-  });
+  if (!id) return null;
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result[0] ?? null;
 }
 
 export async function createRefreshToken(data: NewRefreshToken) {
-  const [token] = await db.insert(refreshTokens).values(data).returning();
-  return token;
+  const result = await db.insert(refreshTokens).values(data).returning();
+  return result[0];
 }
 
 export async function getValidRefreshToken(tokenHash: string) {
-  return db.query.refreshTokens.findFirst({
-    where: and(
-      eq(refreshTokens.tokenHash, tokenHash),
-      isNull(refreshTokens.revokedAt),
-      gt(refreshTokens.expiresAt, new Date())
-    ),
-  });
+  const result = await db
+    .select()
+    .from(refreshTokens)
+    .where(
+      and(
+        eq(refreshTokens.tokenHash, tokenHash),
+        isNull(refreshTokens.revokedAt),
+        gt(refreshTokens.expiresAt, new Date())
+      )
+    )
+    .limit(1);
+  return result[0] ?? null;
 }
 
 export async function revokeRefreshToken(id: string) {
