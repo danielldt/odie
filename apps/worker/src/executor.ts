@@ -204,10 +204,34 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
     const markets = await response.json() as any[];
     const now = Date.now();
     
+    logger.info({ 
+      seriesSlug, 
+      totalFound: markets.length,
+      sampleMarkets: markets.slice(0, 3).map((m: any) => ({
+        id: m.id,
+        slug: m.slug,
+        active: m.active,
+        closed: m.closed,
+        acceptingOrders: m.acceptingOrders,
+      }))
+    }, "Markets found from search");
+
     // Filter for active markets that have been open for a while
     const eligibleMarkets = markets
       .filter((m: any) => {
+        // Check if market matches series (slug should contain the series)
+        if (!m.slug?.includes(seriesSlug.replace(/-\d+$/, ''))) {
+          return false;
+        }
+        
         if (m.closed || m.acceptingOrders === false || !m.active) {
+          logger.debug({ 
+            marketId: m.id, 
+            slug: m.slug,
+            closed: m.closed, 
+            active: m.active, 
+            acceptingOrders: m.acceptingOrders 
+          }, "Market filtered out - not active/accepting orders");
           return false;
         }
         
@@ -236,13 +260,23 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
         return aEnd - bEnd;
       });
 
+    logger.info({ 
+      seriesSlug, 
+      eligibleCount: eligibleMarkets.length,
+      eligibleMarkets: eligibleMarkets.slice(0, 3).map((m: any) => ({
+        id: m.id,
+        slug: m.slug,
+        endDate: m.endDate,
+      }))
+    }, "Eligible markets after filtering");
+
     const activeMarket = eligibleMarkets[0];
 
     if (!activeMarket) {
       logger.warn({ 
         seriesSlug, 
         totalFound: markets.length,
-        message: "No eligible market found (all too new or closed)"
+        reason: markets.length === 0 ? "search returned no results" : "all markets filtered out (closed or too new)"
       }, "No active market found in series");
       return null;
     }
