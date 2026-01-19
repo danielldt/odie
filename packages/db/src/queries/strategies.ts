@@ -64,3 +64,15 @@ export async function incrementRunsCompleted(id: string, nextRunAt: Date | null)
   return strategy;
 }
 
+export async function updateStrategyNextRun(id: string, nextRunAt: Date | null) {
+  const [strategy] = await db
+    .update(strategies)
+    .set({
+      nextRunAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(strategies.id, id))
+    .returning();
+  return strategy;
+}
+

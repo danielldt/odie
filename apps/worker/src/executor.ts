@@ -23,6 +23,7 @@ import {
   updateOrder,
   upsertPnlRecord,
   incrementRunsCompleted,
+  updateStrategyNextRun,
 } from "@odie/db";
 
 interface ExecuteJobData {
@@ -115,26 +116,29 @@ export function createExecutor(wsManager: ClobWsManager) {
           wsManager,
         });
 
-        // Increment runs completed
-        // For series-based strategies holding to resolution:
-        // Schedule next run AFTER the market resolves (so funds are available)
+        // Handle run result
         let nextRunAt: Date | null = null;
         
         if (strategy.enabled) {
-          if (result.marketEndDate) {
-            // Wait until market resolves + 1 minute buffer for settlement
+          if (result.skipped) {
+            // Skipped runs (no market found) - just schedule next check, don't count as completed
+            nextRunAt = new Date(Date.now() + strategy.frequencySeconds * 1000);
+            logger.info({ nextRunAt }, "Run skipped, scheduling next check");
+            await updateStrategyNextRun(strategyId, nextRunAt);
+          } else if (result.marketEndDate) {
+            // Successful trade - wait until market resolves before next trade
             nextRunAt = new Date(result.marketEndDate.getTime() + 60000);
             logger.info({ 
               marketEndDate: result.marketEndDate, 
               nextRunAt 
-            }, "Scheduling next run after market resolution");
+            }, "Trade placed! Scheduling next run after market resolution");
+            await incrementRunsCompleted(strategyId, nextRunAt);
           } else {
-            // Fallback to frequency-based scheduling
+            // Trade completed but no end date - use frequency
             nextRunAt = new Date(Date.now() + strategy.frequencySeconds * 1000);
+            await incrementRunsCompleted(strategyId, nextRunAt);
           }
         }
-        
-        await incrementRunsCompleted(strategyId, nextRunAt);
 
         return result;
       } finally {
