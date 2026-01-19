@@ -15,6 +15,7 @@ import { SAFETY_DEFAULTS } from "@odie/shared";
 import {
   getStrategyById,
   getActiveCredentialForUser,
+  getWalletById,
   getTradeRunByIdempotencyKey,
   createTradeRun,
   updateTradeRun,
@@ -88,7 +89,11 @@ export function createExecutor(wsManager: ClobWsManager) {
         const credentials: ClobApiCredentials = JSON.parse(credentialsJson);
 
         // Get wallet address from credential's wallet
-        const walletAddress = "0x" + credential.walletId.replace(/-/g, "").slice(0, 40); // Placeholder - should fetch from wallet table
+        const wallet = await getWalletById(credential.walletId);
+        if (!wallet) {
+          throw new Error("Wallet not found for credential");
+        }
+        const walletAddress = wallet.address;
 
         // Execute the run
         const result = await executeRun({
@@ -137,7 +142,12 @@ export function createExecutor(wsManager: ClobWsManager) {
   });
 
   worker.on("failed", (job, error) => {
-    logger.error({ jobId: job?.id, error: error.message }, "Job failed");
+    logger.error({ 
+      jobId: job?.id, 
+      errorMessage: error.message,
+      errorStack: error.stack,
+      jobData: job?.data 
+    }, "Job failed");
   });
 
   return worker;
