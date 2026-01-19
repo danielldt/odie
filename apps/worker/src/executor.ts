@@ -259,7 +259,7 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
           continue;
         }
         
-        if (tokenIds.length >= 2) {
+        if (tokenIds.length >= 2 && tokenIds[0] && tokenIds[1]) {
           return {
             marketId: activeMarket.id || activeMarket.conditionId,
             yesTokenId: tokenIds[0],
