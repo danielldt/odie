@@ -60,6 +60,8 @@ export function createExecutor(wsManager: ClobWsManager) {
       }
 
       try {
+        logger.info({ strategyId, userId, scheduledFor }, "Starting job execution...");
+
         // Check idempotency - skip if already processed
         const existingRun = await getTradeRunByIdempotencyKey(idempotencyKey);
         if (existingRun) {
@@ -68,10 +70,12 @@ export function createExecutor(wsManager: ClobWsManager) {
         }
 
         // Load strategy
+        logger.info({ strategyId }, "Loading strategy...");
         const strategy = await getStrategyById(strategyId);
         if (!strategy) {
           throw new Error(`Strategy not found: ${strategyId}`);
         }
+        logger.info({ strategyId, seriesSlug: strategy.seriesSlug, enabled: strategy.enabled }, "Strategy loaded");
 
         if (!strategy.enabled) {
           logger.info({ strategyId }, "Strategy disabled, skipping");
@@ -79,21 +83,27 @@ export function createExecutor(wsManager: ClobWsManager) {
         }
 
         // Load credentials
+        logger.info({ userId }, "Loading credentials...");
         const credential = await getActiveCredentialForUser(userId);
         if (!credential) {
           throw new Error("No active credentials for user");
         }
+        logger.info({ credentialId: credential.id, walletId: credential.walletId }, "Credentials loaded");
 
         // Decrypt credentials
+        logger.info("Decrypting credentials...");
         const credentialsJson = decrypt(credential.encryptedBlob, credential.iv);
         const credentials: ClobApiCredentials = JSON.parse(credentialsJson);
+        logger.info({ hasApiKey: !!credentials.apiKey, hasSecret: !!credentials.apiSecret }, "Credentials decrypted");
 
         // Get wallet address from credential's wallet
+        logger.info({ walletId: credential.walletId }, "Loading wallet...");
         const wallet = await getWalletById(credential.walletId);
         if (!wallet) {
-          throw new Error("Wallet not found for credential");
+          throw new Error(`Wallet not found for credential: ${credential.walletId}`);
         }
         const walletAddress = wallet.address;
+        logger.info({ walletAddress }, "Wallet loaded");
 
         // Execute the run
         const result = await executeRun({
@@ -142,6 +152,12 @@ export function createExecutor(wsManager: ClobWsManager) {
   });
 
   worker.on("failed", (job, error) => {
+    console.error("=== JOB FAILED ===");
+    console.error("Job ID:", job?.id);
+    console.error("Error:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("Job Data:", JSON.stringify(job?.data, null, 2));
+    console.error("==================");
     logger.error({ 
       jobId: job?.id, 
       errorMessage: error.message,
