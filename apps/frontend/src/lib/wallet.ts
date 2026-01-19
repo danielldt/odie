@@ -105,10 +105,14 @@ export async function derivePolymarketCredentials(signer: ethers.Signer): Promis
   // This will prompt the user to sign a message with their wallet
   const creds = await client.createOrDeriveApiKey();
   
+  // The API returns different property names depending on version
+  // Handle both cases
+  const result = creds as any;
+  
   return {
-    apiKey: creds.apiKey,
-    secret: creds.secret,
-    passphrase: creds.passphrase,
+    apiKey: result.apiKey || result.key || result.api_key,
+    secret: result.secret || result.apiSecret || result.api_secret,
+    passphrase: result.passphrase || result.apiPassphrase || result.api_passphrase,
   };
 }
 
