@@ -93,16 +93,16 @@ export async function strategyRoutes(app: FastifyInstance) {
     // Build update object
     const updateData: Record<string, unknown> = {};
     
-    if (input.name !== undefined) updateData.name = input.name;
-    if (input.limitPrice !== undefined) updateData.limitPrice = input.limitPrice.toString();
-    if (input.positionSizeUsdc !== undefined) updateData.positionSizeUsdc = input.positionSizeUsdc.toString();
-    if (input.frequencySeconds !== undefined) updateData.frequencySeconds = input.frequencySeconds;
-    if (input.maxRuns !== undefined) updateData.maxRuns = input.maxRuns;
-    if (input.enabled !== undefined) updateData.enabled = input.enabled;
-    if (input.minLiquidityUsdc !== undefined) updateData.minLiquidityUsdc = input.minLiquidityUsdc.toString();
-    if (input.maxSlippageFromMidpoint !== undefined) updateData.maxSlippageFromMidpoint = input.maxSlippageFromMidpoint.toString();
-    if (input.legTimeoutMs !== undefined) updateData.legTimeoutMs = input.legTimeoutMs;
-    if (input.autoCashOut !== undefined) updateData.autoCashOut = input.autoCashOut;
+    if (input['name'] !== undefined) updateData['name'] = input['name'];
+    if (input['limitPrice'] !== undefined) updateData['limitPrice'] = input['limitPrice'].toString();
+    if (input['positionSizeUsdc'] !== undefined) updateData['positionSizeUsdc'] = input['positionSizeUsdc'].toString();
+    if (input['frequencySeconds'] !== undefined) updateData['frequencySeconds'] = input['frequencySeconds'];
+    if (input['maxRuns'] !== undefined) updateData['maxRuns'] = input['maxRuns'];
+    if (input['enabled'] !== undefined) updateData['enabled'] = input['enabled'];
+    if (input['minLiquidityUsdc'] !== undefined) updateData['minLiquidityUsdc'] = input['minLiquidityUsdc'].toString();
+    if (input['maxSlippageFromMidpoint'] !== undefined) updateData['maxSlippageFromMidpoint'] = input['maxSlippageFromMidpoint'].toString();
+    if (input['legTimeoutMs'] !== undefined) updateData['legTimeoutMs'] = input['legTimeoutMs'];
+    if (input['autoCashOut'] !== undefined) updateData['autoCashOut'] = input['autoCashOut'];
 
     const strategy = await updateStrategy(id, updateData);
 
