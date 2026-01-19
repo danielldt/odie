@@ -18,12 +18,14 @@ export class ClobWsManager {
   private orderbooks = new Map<string, OrderbookSnapshot>();
   private orderCallbacks = new Map<string, (update: WsOrderUpdate) => void>();
 
+  private connectionFailed = false;
+
   constructor() {
     this.client = new ClobWsClient({
       wsUrl: config.polymarket.clobWsUrl,
       reconnect: true,
-      reconnectIntervalMs: 5000,
-      maxReconnectAttempts: 20,
+      reconnectIntervalMs: 30000, // Retry every 30 seconds instead of 5
+      maxReconnectAttempts: 3, // Only 3 attempts instead of 20
     });
 
     this.setupListeners();
@@ -31,15 +33,24 @@ export class ClobWsManager {
 
   private setupListeners() {
     this.client.on("connected", () => {
+      this.connectionFailed = false;
       logger.info("Connected to Polymarket CLOB WebSocket");
     });
 
     this.client.on("disconnected", (code, reason) => {
-      logger.warn({ code, reason }, "Disconnected from Polymarket CLOB WebSocket");
+      // Only log once, not on every reconnect attempt
+      if (!this.connectionFailed) {
+        logger.warn({ code, reason }, "Polymarket WebSocket disconnected (using REST fallback)");
+        this.connectionFailed = true;
+      }
     });
 
     this.client.on("error", (error) => {
-      logger.error(error, "Polymarket CLOB WebSocket error");
+      // Only log once to reduce noise
+      if (!this.connectionFailed) {
+        logger.warn({ error: (error as Error).message }, "WebSocket unavailable, using REST API for order tracking");
+        this.connectionFailed = true;
+      }
     });
 
     this.client.on("book", (update: WsBookUpdate) => {
