@@ -191,36 +191,76 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
   endDate: Date | null;
 } | null> {
   try {
-    // Search for active markets in this series
-    const response = await fetch(
-      `https://gamma-api.polymarket.com/public-search?query=${encodeURIComponent(seriesSlug)}`
-    );
-    
-    if (!response.ok) {
-      logger.error({ seriesSlug, status: response.status }, "Failed to search for markets");
-      return null;
+    // Try multiple search strategies
+    const searchQueries = [
+      seriesSlug, // e.g., "btc-updown-15m"
+      seriesSlug.replace(/-/g, ' '), // e.g., "btc updown 15m"
+      seriesSlug.split('-').slice(0, 2).join(' '), // e.g., "btc updown"
+    ];
+
+    let markets: any[] = [];
+
+    // Try public-search first
+    for (const query of searchQueries) {
+      const response = await fetch(
+        `https://gamma-api.polymarket.com/public-search?query=${encodeURIComponent(query)}&limit=50`
+      );
+      
+      if (response.ok) {
+        const results = await response.json() as any[];
+        logger.info({ query, resultsCount: results.length }, "Search attempt");
+        
+        if (results.length > 0) {
+          markets = results;
+          break;
+        }
+      }
     }
 
-    const markets = await response.json() as any[];
+    // If public-search returned nothing, try the markets endpoint directly
+    if (markets.length === 0) {
+      logger.info("Public search returned no results, trying markets endpoint...");
+      const marketsResponse = await fetch(
+        `https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=100`
+      );
+      
+      if (marketsResponse.ok) {
+        const allMarkets = await marketsResponse.json() as any[];
+        // Filter by slug pattern
+        const baseSlug = seriesSlug.replace(/-\d+$/, ''); // Remove trailing timestamp if any
+        markets = allMarkets.filter((m: any) => 
+          m.slug?.toLowerCase().includes(baseSlug.toLowerCase()) ||
+          m.question?.toLowerCase().includes(baseSlug.replace(/-/g, ' ').toLowerCase())
+        );
+        logger.info({ baseSlug, matchedCount: markets.length }, "Markets matched from direct fetch");
+      }
+    }
+
     const now = Date.now();
     
     logger.info({ 
       seriesSlug, 
       totalFound: markets.length,
-      sampleMarkets: markets.slice(0, 3).map((m: any) => ({
+      sampleMarkets: markets.slice(0, 5).map((m: any) => ({
         id: m.id,
         slug: m.slug,
+        question: m.question?.slice(0, 50),
         active: m.active,
         closed: m.closed,
         acceptingOrders: m.acceptingOrders,
+        endDate: m.endDate,
       }))
-    }, "Markets found from search");
+    }, "Markets found");
 
     // Filter for active markets that have been open for a while
+    const baseSlug = seriesSlug.replace(/-\d+$/, '');
     const eligibleMarkets = markets
       .filter((m: any) => {
-        // Check if market matches series (slug should contain the series)
-        if (!m.slug?.includes(seriesSlug.replace(/-\d+$/, ''))) {
+        // Check if market matches series pattern
+        const matchesSlug = m.slug?.toLowerCase().includes(baseSlug.toLowerCase());
+        const matchesQuestion = m.question?.toLowerCase().includes(baseSlug.replace(/-/g, ' ').toLowerCase());
+        
+        if (!matchesSlug && !matchesQuestion) {
           return false;
         }
         
@@ -238,13 +278,13 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
         // Skip markets that just opened (prices are skewed)
         const acceptingOrdersTimestamp = m.acceptingOrdersTimestamp 
           ? new Date(m.acceptingOrdersTimestamp).getTime() 
-          : 0;
+          : (m.startDate ? new Date(m.startDate).getTime() : 0);
         const marketAge = now - acceptingOrdersTimestamp;
         
-        if (marketAge < MIN_MARKET_AGE_MS) {
+        if (marketAge > 0 && marketAge < MIN_MARKET_AGE_MS) {
           logger.info({ 
             marketId: m.id, 
-            question: m.question,
+            question: m.question?.slice(0, 50),
             ageMinutes: (marketAge / 60000).toFixed(1),
             minAgeMinutes: MIN_MARKET_AGE_MS / 60000
           }, "Skipping market - too new, prices may be skewed");
@@ -266,6 +306,7 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
       eligibleMarkets: eligibleMarkets.slice(0, 3).map((m: any) => ({
         id: m.id,
         slug: m.slug,
+        question: m.question?.slice(0, 50),
         endDate: m.endDate,
       }))
     }, "Eligible markets after filtering");
