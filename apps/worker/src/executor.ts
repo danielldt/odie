@@ -155,7 +155,11 @@ interface ExecuteRunParams {
   wsManager: ClobWsManager;
 }
 
+// Minimum time a market should be open before we trade it (avoid skewed prices at open)
+const MIN_MARKET_AGE_MS = 3 * 60 * 1000; // 3 minutes
+
 // Resolve active market from series slug
+// Skips markets that just opened (prices often skewed)
 async function resolveMarketFromSeries(seriesSlug: string): Promise<{
   marketId: string;
   yesTokenId: string;
@@ -175,14 +179,48 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
     }
 
     const markets = await response.json() as any[];
+    const now = Date.now();
     
-    // Find the first active, non-closed market that's accepting orders
-    const activeMarket = markets.find(
-      (m: any) => !m.closed && m.acceptingOrders !== false && m.active
-    );
+    // Filter for active markets that have been open for a while
+    const eligibleMarkets = markets
+      .filter((m: any) => {
+        if (m.closed || m.acceptingOrders === false || !m.active) {
+          return false;
+        }
+        
+        // Skip markets that just opened (prices are skewed)
+        const acceptingOrdersTimestamp = m.acceptingOrdersTimestamp 
+          ? new Date(m.acceptingOrdersTimestamp).getTime() 
+          : 0;
+        const marketAge = now - acceptingOrdersTimestamp;
+        
+        if (marketAge < MIN_MARKET_AGE_MS) {
+          logger.info({ 
+            marketId: m.id, 
+            question: m.question,
+            ageMinutes: (marketAge / 60000).toFixed(1),
+            minAgeMinutes: MIN_MARKET_AGE_MS / 60000
+          }, "Skipping market - too new, prices may be skewed");
+          return false;
+        }
+        
+        return true;
+      })
+      // Sort by end date (soonest first) to trade markets closer to resolution
+      .sort((a: any, b: any) => {
+        const aEnd = new Date(a.endDate || 0).getTime();
+        const bEnd = new Date(b.endDate || 0).getTime();
+        return aEnd - bEnd;
+      });
+
+    const activeMarket = eligibleMarkets[0];
 
     if (!activeMarket) {
-      logger.warn({ seriesSlug, totalFound: markets.length }, "No active market found in series");
+      logger.warn({ 
+        seriesSlug, 
+        totalFound: markets.length,
+        message: "No eligible market found (all too new or closed)"
+      }, "No active market found in series");
       return null;
     }
 
