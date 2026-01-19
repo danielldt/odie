@@ -57,8 +57,8 @@ export function StrategyDetailPage() {
             ← Back to strategies
           </Link>
           <h1 className="text-3xl font-display font-bold">{strategy.name}</h1>
-          <p className="text-surface-400 mt-1">
-            {strategy.market?.question || strategy.marketId}
+          <p className="text-surface-400 mt-1 font-mono">
+            {strategy.seriesSlug || strategy.marketId || "No market configured"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -85,32 +85,42 @@ export function StrategyDetailPage() {
       {/* Strategy config */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card">
-          <h2 className="text-lg font-display font-semibold mb-4">Order Configuration</h2>
+          <h2 className="text-lg font-display font-semibold mb-4">Strategy Configuration</h2>
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-surface-400">YES Token</span>
-              <span className="font-mono text-sm">{strategy.yesTokenId?.slice(0, 16)}...</span>
+              <span className="text-surface-400">Market Series</span>
+              <span className="font-mono text-primary-400">{strategy.seriesSlug || "N/A"}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-surface-400">YES Price</span>
-              <span className="font-mono text-primary-400">${parseFloat(strategy.yesLimitPrice).toFixed(4)}</span>
+              <span className="text-surface-400">Limit Price</span>
+              <span className="font-mono text-primary-400">
+                ${strategy.limitPrice ? parseFloat(strategy.limitPrice).toFixed(4) : "N/A"}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-surface-400">YES Size</span>
-              <span className="font-mono">{parseFloat(strategy.yesSize).toFixed(2)}</span>
+              <span className="text-surface-400">Position Size</span>
+              <span className="font-mono">
+                ${strategy.positionSizeUsdc ? parseFloat(strategy.positionSizeUsdc).toFixed(2) : "N/A"}
+              </span>
             </div>
             <hr className="border-surface-800" />
             <div className="flex justify-between">
-              <span className="text-surface-400">NO Token</span>
-              <span className="font-mono text-sm">{strategy.noTokenId?.slice(0, 16)}...</span>
+              <span className="text-surface-400">Implied Edge</span>
+              <span className="font-mono text-green-400">
+                {strategy.limitPrice 
+                  ? `${((1 - parseFloat(strategy.limitPrice) * 2) * 100).toFixed(1)}%`
+                  : "N/A"
+                }
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-surface-400">NO Price</span>
-              <span className="font-mono text-primary-400">${parseFloat(strategy.noLimitPrice).toFixed(4)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-surface-400">NO Size</span>
-              <span className="font-mono">{parseFloat(strategy.noSize).toFixed(2)}</span>
+              <span className="text-surface-400">Contracts/Side</span>
+              <span className="font-mono">
+                {strategy.limitPrice && strategy.positionSizeUsdc
+                  ? Math.floor(parseFloat(strategy.positionSizeUsdc) / parseFloat(strategy.limitPrice) / 2)
+                  : "N/A"
+                }
+              </span>
             </div>
           </div>
         </div>
@@ -120,7 +130,7 @@ export function StrategyDetailPage() {
           <div className="space-y-3">
             <div className="flex justify-between">
               <span className="text-surface-400">Frequency</span>
-              <span className="font-mono">{strategy.frequencySeconds / 60} minutes</span>
+              <span className="font-mono">{Math.round((strategy.frequencySeconds || 60) / 60)} minutes</span>
             </div>
             <div className="flex justify-between">
               <span className="text-surface-400">Max Runs</span>
@@ -128,22 +138,22 @@ export function StrategyDetailPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-surface-400">Runs Completed</span>
-              <span className="font-mono">{strategy.runsCompleted}</span>
+              <span className="font-mono">{strategy.runsCompleted ?? 0}</span>
             </div>
             <hr className="border-surface-800" />
             <div className="flex justify-between">
               <span className="text-surface-400">Min Liquidity</span>
-              <span className="font-mono">${parseFloat(strategy.minLiquidityUsdc).toFixed(2)}</span>
+              <span className="font-mono">
+                ${strategy.minLiquidityUsdc ? parseFloat(strategy.minLiquidityUsdc).toFixed(2) : "10.00"}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-surface-400">Leg Timeout</span>
-              <span className="font-mono">{strategy.legTimeoutMs / 1000}s</span>
+              <span className="font-mono">{(strategy.legTimeoutMs || 30000) / 1000}s</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-surface-400">Auto Cash-Out</span>
-              <span className={strategy.autoCashOut ? "text-green-400" : "text-surface-400"}>
-                {strategy.autoCashOut ? "Yes" : "No"}
-              </span>
+              <span className="text-surface-400">Resolution</span>
+              <span className="text-green-400">Hold to Payout</span>
             </div>
           </div>
         </div>
