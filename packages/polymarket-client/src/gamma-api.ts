@@ -85,18 +85,28 @@ export class GammaApiClient {
   }
 
   /**
-   * Search markets by keyword
+   * Search markets using Polymarket's public search endpoint
    */
-  async searchMarkets(query: string, limit = 50): Promise<GammaMarket[]> {
-    // Gamma API may have a search endpoint, or we filter client-side
-    const response = await this.getMarkets({ active: true, limit });
+  async searchMarkets(query: string): Promise<GammaMarket[]> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("query", query);
     
-    const lowerQuery = query.toLowerCase();
-    return response.markets.filter(
-      (m) =>
-        m.question.toLowerCase().includes(lowerQuery) ||
-        m.slug.toLowerCase().includes(lowerQuery)
-    );
+    const path = `/public-search?${searchParams.toString()}`;
+    
+    try {
+      const response = await this.request<GammaMarket[]>(path);
+      return Array.isArray(response) ? response : [];
+    } catch (error) {
+      // Fallback to basic market list if search fails
+      console.error("Public search failed, falling back to markets list:", error);
+      const response = await this.getMarkets({ limit: 100 });
+      const lowerQuery = query.toLowerCase();
+      return response.markets.filter(
+        (m) =>
+          m.question?.toLowerCase().includes(lowerQuery) ||
+          m.slug?.toLowerCase().includes(lowerQuery)
+      );
+    }
   }
 
   /**

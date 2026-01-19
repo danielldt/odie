@@ -15,35 +15,28 @@ export async function marketRoutes(app: FastifyInstance) {
     const params = marketsQuerySchema.parse(request.query);
     
     try {
-      // When searching, fetch more markets to search through
-      const fetchLimit = params.search ? 500 : params.limit;
-      
-      // Fetch from Polymarket Gamma API directly
-      // Don't filter by active by default - let frontend decide
-      const gammaResponse = await gammaApi.getMarkets({
-        active: params.active,
-        closed: false, // Don't show already resolved markets
-        limit: fetchLimit,
-        offset: params.search ? 0 : params.offset, // Start from 0 when searching
-      });
+      let markets: any[];
 
-      let markets = gammaResponse.markets;
-
-      // Filter by search term if provided
       if (params.search) {
-        const searchTerms = params.search.toLowerCase().split(/\s+/);
-        markets = markets.filter((m) => {
-          const text = `${m.question || ""} ${m.slug || ""} ${m.description || ""}`.toLowerCase();
-          // Match if ALL search terms are found
-          return searchTerms.every(term => text.includes(term));
-        });
+        // Use Polymarket's public-search endpoint for searching
+        request.log.info({ query: params.search }, "Searching markets via public-search");
+        markets = await gammaApi.searchMarkets(params.search);
         
-        // Apply pagination after filtering
+        // Apply pagination
         markets = markets.slice(params.offset, params.offset + params.limit);
+      } else {
+        // List markets without search
+        const gammaResponse = await gammaApi.getMarkets({
+          active: params.active,
+          closed: false,
+          limit: params.limit,
+          offset: params.offset,
+        });
+        markets = gammaResponse.markets;
       }
 
       // Transform to our format
-      const transformedMarkets = markets.map((m) => ({
+      const transformedMarkets = markets.map((m: any) => ({
         id: m.id,
         slug: m.slug,
         question: m.question,
