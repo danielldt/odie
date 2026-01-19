@@ -25,7 +25,34 @@ export async function createApp() {
 
   // Plugins
   await app.register(cors, {
-    origin: [config.frontendUrl],
+    origin: (origin, cb) => {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      
+      // Allow configured frontend URL
+      if (origin === config.frontendUrl) {
+        cb(null, true);
+        return;
+      }
+      
+      // Allow Railway domains
+      if (origin.endsWith('.up.railway.app') || origin.endsWith('.railway.app')) {
+        cb(null, true);
+        return;
+      }
+      
+      // Allow localhost for development
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        cb(null, true);
+        return;
+      }
+      
+      // Block other origins
+      cb(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
   });
 
