@@ -54,6 +54,16 @@ function WalletSection({ wallets }: { wallets: any[] }) {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: walletsApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wallets"] });
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+    },
+  });
+
   const handleConnectWallet = async () => {
     setError("");
     setConnecting(true);
@@ -100,7 +110,21 @@ function WalletSection({ wallets }: { wallets: any[] }) {
                 <p className="font-mono text-sm">{wallet.address}</p>
                 <p className="text-surface-500 text-xs">Polygon (Chain ID: {wallet.chainId})</p>
               </div>
-              <span className="text-green-400 text-sm">✓ Connected</span>
+              <div className="flex items-center gap-3">
+                <span className="text-green-400 text-sm">✓ Connected</span>
+                <button
+                  onClick={() => {
+                    if (confirm("Remove this wallet? Any associated credentials will need to be re-added.")) {
+                      deleteMutation.mutate(wallet.id);
+                    }
+                  }}
+                  disabled={deleteMutation.isPending}
+                  className="text-red-400 hover:text-red-300 text-sm transition"
+                  title="Remove wallet"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { walletVerifySchema } from "@odie/shared/schemas";
-import { createWallet, getUserWallets, getWalletByAddress } from "@odie/db";
+import { createWallet, getUserWallets, getWalletByAddress, deleteWallet } from "@odie/db";
 import { authenticate, getUserId } from "../lib/auth.js";
-import { BadRequestError, ConflictError } from "../lib/error-handler.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../lib/error-handler.js";
 import { verifyMessage } from "../lib/siwe.js";
 
 export async function walletRoutes(app: FastifyInstance) {
@@ -45,5 +45,18 @@ export async function walletRoutes(app: FastifyInstance) {
     });
 
     return reply.status(201).send({ wallet });
+  });
+
+  // Delete wallet
+  app.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    const userId = getUserId(request);
+    const { id } = request.params;
+
+    const deleted = await deleteWallet(id, userId);
+    if (!deleted) {
+      throw new NotFoundError("Wallet not found");
+    }
+
+    return reply.status(204).send();
   });
 }

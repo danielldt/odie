@@ -204,4 +204,5 @@ export const walletsApi = {
   list: () => api.get<{ wallets: unknown[] }>("/wallets"),
   verify: (data: { address: string; chainId: number; message: string; signature: string }) =>
     api.post<{ wallet: unknown }>("/wallets/verify", data),
+  delete: (id: string) => api.delete(`/wallets/${id}`),
 };
