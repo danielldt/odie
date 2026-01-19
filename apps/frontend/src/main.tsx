@@ -1,9 +1,3 @@
-// Polyfill Node.js globals for browser (required by @polymarket/clob-client)
-import { Buffer } from "buffer";
-import process from "process";
-(window as any).Buffer = Buffer;
-(window as any).process = process;
-
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

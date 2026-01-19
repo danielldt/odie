@@ -88,31 +88,102 @@ export async function connectWithPrivateKey(privateKey: string): Promise<WalletS
   };
 }
 
+const POLYMARKET_CLOB_URL = "https://clob.polymarket.com";
+
+// Build L1 authentication headers for Polymarket API (EIP-712 signing)
+async function buildPolymarketAuthHeaders(signer: ethers.Signer): Promise<{
+  POLY_ADDRESS: string;
+  POLY_SIGNATURE: string;
+  POLY_TIMESTAMP: string;
+  POLY_NONCE: string;
+}> {
+  const address = await signer.getAddress();
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = "0"; // Use 0 for initial auth
+
+  // EIP-712 domain and message for Polymarket
+  const domain = {
+    name: "ClobAuthDomain",
+    version: "1",
+    chainId: 137,
+  };
+
+  const types = {
+    ClobAuth: [
+      { name: "address", type: "address" },
+      { name: "timestamp", type: "string" },
+      { name: "nonce", type: "uint256" },
+      { name: "message", type: "string" },
+    ],
+  };
+
+  const message = {
+    address,
+    timestamp,
+    nonce: 0,
+    message: "This message attests that I control the given wallet",
+  };
+
+  // Sign using EIP-712
+  const signature = await (signer as any)._signTypedData(domain, types, message);
+
+  return {
+    POLY_ADDRESS: address,
+    POLY_SIGNATURE: signature,
+    POLY_TIMESTAMP: timestamp,
+    POLY_NONCE: nonce,
+  };
+}
+
 export async function derivePolymarketCredentials(signer: ethers.Signer): Promise<{
   apiKey: string;
   secret: string;
   passphrase: string;
 }> {
-  // Dynamically import the CLOB client (it's a heavy library)
-  const { ClobClient } = await import("@polymarket/clob-client");
+  const address = await signer.getAddress();
   
-  const client = new ClobClient(
-    "https://clob.polymarket.com",
-    137, // Polygon
-    signer as any
-  );
-  
-  // This will prompt the user to sign a message with their wallet
-  const creds = await client.createOrDeriveApiKey();
-  
-  // The API returns different property names depending on version
-  // Handle both cases
-  const result = creds as any;
+  // Build authentication headers
+  const authHeaders = await buildPolymarketAuthHeaders(signer);
+
+  // Try to derive existing API key first
+  const deriveResponse = await fetch(`${POLYMARKET_CLOB_URL}/auth/derive-api-key`, {
+    method: "GET",
+    headers: {
+      ...authHeaders,
+    },
+  });
+
+  if (deriveResponse.ok) {
+    const data = await deriveResponse.json();
+    if (data.apiKey || data.key) {
+      return {
+        apiKey: data.apiKey || data.key,
+        secret: data.secret || data.apiSecret,
+        passphrase: data.passphrase,
+      };
+    }
+  }
+
+  // If no existing key, create a new one
+  const createResponse = await fetch(`${POLYMARKET_CLOB_URL}/auth/api-key`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+  });
+
+  if (!createResponse.ok) {
+    const error = await createResponse.text();
+    throw new Error(`Failed to create API key: ${error}`);
+  }
+
+  const data = await createResponse.json();
   
   return {
-    apiKey: result.apiKey || result.key || result.api_key,
-    secret: result.secret || result.apiSecret || result.api_secret,
-    passphrase: result.passphrase || result.apiPassphrase || result.api_passphrase,
+    apiKey: data.apiKey || data.key,
+    secret: data.secret || data.apiSecret,
+    passphrase: data.passphrase,
   };
 }
 
