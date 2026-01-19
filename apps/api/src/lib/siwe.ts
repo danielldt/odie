@@ -1,41 +1,32 @@
 import { createHash } from "crypto";
+import { ethers } from "ethers";
 
 /**
- * Simple SIWE-style message verification
- * In production, use a proper SIWE library like 'siwe' or ethers.js
+ * Verify an Ethereum signed message
  */
 export async function verifyMessage(
   address: string,
   message: string,
   signature: string
 ): Promise<boolean> {
-  // This is a simplified verification
-  // In production, use ethers.js or viem to properly verify EIP-191 signatures
-  
   try {
-    // For now, we'll do a basic check that the signature is well-formed
-    // The actual verification should use ecrecover
-    
     // Validate address format
-    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    if (!/^0x[a-fA-F0-9]{40}$/i.test(address)) {
       return false;
     }
     
-    // Validate signature format (65 bytes = 130 hex chars + 0x)
-    if (!/^0x[a-fA-F0-9]{130}$/.test(signature)) {
+    // Validate signature format
+    if (!/^0x[a-fA-F0-9]{130}$/i.test(signature)) {
       return false;
     }
     
-    // In a real implementation, you would:
-    // 1. Hash the message with EIP-191 prefix
-    // 2. Recover the public key from the signature
-    // 3. Derive the address from the public key
-    // 4. Compare with the provided address
+    // Recover the address from the signature
+    const recoveredAddress = ethers.utils.verifyMessage(message, signature);
     
-    // For development, we accept any well-formed signature
-    // TODO: Implement proper signature verification with ethers.js or viem
-    return true;
-  } catch {
+    // Compare addresses (case-insensitive)
+    return recoveredAddress.toLowerCase() === address.toLowerCase();
+  } catch (err) {
+    console.error("Signature verification failed:", err);
     return false;
   }
 }

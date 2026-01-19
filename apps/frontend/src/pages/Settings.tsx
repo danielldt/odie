@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { credentialsApi, walletsApi } from "../lib/api";
+import { connectWallet, connectWithPrivateKey, derivePolymarketCredentials, shortenAddress } from "../lib/wallet";
+import type { ethers } from "ethers";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -22,7 +24,7 @@ export function SettingsPage() {
     <div className="space-y-8 max-w-2xl">
       <div>
         <h1 className="text-3xl font-display font-bold mb-2">Settings</h1>
-        <p className="text-surface-400">Manage your wallet and API credentials</p>
+        <p className="text-surface-400">Connect your wallet and set up Polymarket API credentials</p>
       </div>
 
       <WalletSection wallets={wallets} />
@@ -39,42 +41,46 @@ export function SettingsPage() {
 
 function WalletSection({ wallets }: { wallets: any[] }) {
   const queryClient = useQueryClient();
-  const [showConnect, setShowConnect] = useState(false);
-  const [address, setAddress] = useState("");
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
 
   const verifyMutation = useMutation({
     mutationFn: walletsApi.verify,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wallets"] });
-      setShowConnect(false);
-      setAddress("");
     },
     onError: (err: Error) => {
       setError(err.message);
     },
   });
 
-  const handleConnect = async () => {
+  const handleConnectWallet = async () => {
     setError("");
+    setConnecting(true);
     
-    // In production, use WalletConnect/MetaMask
-    // For now, just verify address format
-    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-      setError("Invalid Ethereum address");
-      return;
+    try {
+      const wallet = await connectWallet();
+      
+      if (!wallet.address) {
+        throw new Error("Failed to get wallet address");
+      }
+
+      // Create a simple signature to verify ownership
+      const message = `Sign this message to connect your wallet to Odie Trading Platform.\n\nWallet: ${wallet.address}\nTimestamp: ${Date.now()}`;
+      const signature = await wallet.signer!.signMessage(message);
+
+      // Send to backend
+      verifyMutation.mutate({
+        address: wallet.address,
+        chainId: wallet.chainId!,
+        message,
+        signature,
+      });
+    } catch (err: any) {
+      setError(err.message || "Failed to connect wallet");
+    } finally {
+      setConnecting(false);
     }
-
-    // Simulated signature (in production, request from wallet)
-    const message = "Sign in to Odie Polymarket Platform";
-    const signature = "0x" + "0".repeat(130); // Placeholder
-
-    verifyMutation.mutate({
-      address,
-      chainId: 137,
-      message,
-      signature,
-    });
   };
 
   return (
@@ -82,7 +88,7 @@ function WalletSection({ wallets }: { wallets: any[] }) {
       <h2 className="text-lg font-display font-semibold mb-4">Connected Wallets</h2>
 
       {wallets.length === 0 ? (
-        <p className="text-surface-500 mb-4">No wallets connected</p>
+        <p className="text-surface-500 mb-4">No wallets connected. Connect your Polygon wallet to get started.</p>
       ) : (
         <div className="space-y-2 mb-4">
           {wallets.map((wallet: any) => (
@@ -92,47 +98,29 @@ function WalletSection({ wallets }: { wallets: any[] }) {
             >
               <div>
                 <p className="font-mono text-sm">{wallet.address}</p>
-                <p className="text-surface-500 text-xs">Chain ID: {wallet.chainId}</p>
+                <p className="text-surface-500 text-xs">Polygon (Chain ID: {wallet.chainId})</p>
               </div>
-              <span className="text-green-400 text-sm">Connected</span>
+              <span className="text-green-400 text-sm">✓ Connected</span>
             </div>
           ))}
         </div>
       )}
 
-      {showConnect ? (
-        <div className="space-y-3">
-          {error && (
-            <p className="text-red-400 text-sm">{error}</p>
-          )}
-          <input
-            type="text"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="0x..."
-            className="input"
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={handleConnect}
-              disabled={verifyMutation.isPending}
-              className="btn-primary"
-            >
-              {verifyMutation.isPending ? "Connecting..." : "Connect"}
-            </button>
-            <button
-              onClick={() => setShowConnect(false)}
-              className="btn-secondary"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => setShowConnect(true)} className="btn-secondary">
-          + Connect Wallet
-        </button>
+      {error && (
+        <p className="text-red-400 text-sm mb-3">{error}</p>
       )}
+
+      <button
+        onClick={handleConnectWallet}
+        disabled={connecting || verifyMutation.isPending}
+        className="btn-primary"
+      >
+        {connecting ? "Connecting..." : verifyMutation.isPending ? "Verifying..." : "+ Connect MetaMask"}
+      </button>
+      
+      <p className="text-surface-500 text-xs mt-2">
+        Make sure MetaMask is installed and set to Polygon network
+      </p>
     </div>
   );
 }
@@ -149,18 +137,21 @@ function CredentialsSection({
   isLoading: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [showForm, setShowForm] = useState(false);
+  const [deriving, setDeriving] = useState(false);
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState<"auto" | "privatekey" | "manual">("auto");
+  const [privateKey, setPrivateKey] = useState("");
+  
+  // Manual entry state
   const [walletId, setWalletId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
   const [passphrase, setPassphrase] = useState("");
-  const [error, setError] = useState("");
 
   const storeMutation = useMutation({
     mutationFn: credentialsApi.store,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["credentials"] });
-      setShowForm(false);
       setApiKey("");
       setApiSecret("");
       setPassphrase("");
@@ -176,6 +167,130 @@ function CredentialsSection({
       queryClient.invalidateQueries({ queryKey: ["credentials"] });
     },
   });
+
+  const handleDeriveCredentials = async () => {
+    setError("");
+    setDeriving(true);
+
+    try {
+      // Connect wallet first
+      const wallet = await connectWallet();
+      
+      if (!wallet.signer) {
+        throw new Error("Failed to get wallet signer");
+      }
+
+      // Find or create wallet in our system
+      let targetWallet = wallets.find(
+        (w: any) => w.address.toLowerCase() === wallet.address?.toLowerCase()
+      );
+
+      if (!targetWallet) {
+        // Verify wallet first
+        const message = `Sign this message to connect your wallet to Odie Trading Platform.\n\nWallet: ${wallet.address}\nTimestamp: ${Date.now()}`;
+        const signature = await wallet.signer.signMessage(message);
+        
+        const result = await walletsApi.verify({
+          address: wallet.address!,
+          chainId: wallet.chainId!,
+          message,
+          signature,
+        });
+        targetWallet = result.wallet;
+        queryClient.invalidateQueries({ queryKey: ["wallets"] });
+      }
+
+      // Now derive Polymarket credentials
+      console.log("Deriving Polymarket API credentials...");
+      const creds = await derivePolymarketCredentials(wallet.signer);
+      
+      console.log("Credentials derived, storing...");
+      
+      // Store credentials
+      await storeMutation.mutateAsync({
+        walletId: (targetWallet as any).id,
+        apiKey: creds.apiKey,
+        apiSecret: creds.secret,
+        passphrase: creds.passphrase,
+      });
+
+      console.log("Credentials stored successfully!");
+    } catch (err: any) {
+      console.error("Error deriving credentials:", err);
+      setError(err.message || "Failed to derive credentials");
+    } finally {
+      setDeriving(false);
+    }
+  };
+
+  const handleDeriveFromPrivateKey = async () => {
+    setError("");
+    setDeriving(true);
+
+    try {
+      if (!privateKey) {
+        throw new Error("Please enter your private key");
+      }
+
+      // Connect with private key
+      const wallet = await connectWithPrivateKey(privateKey);
+      
+      if (!wallet.signer || !wallet.address) {
+        throw new Error("Failed to create wallet from private key");
+      }
+
+      // Find or create wallet in our system
+      let targetWallet = wallets.find(
+        (w: any) => w.address.toLowerCase() === wallet.address?.toLowerCase()
+      );
+
+      if (!targetWallet) {
+        // Create a signature to verify wallet
+        const message = `Sign this message to connect your wallet to Odie Trading Platform.\n\nWallet: ${wallet.address}\nTimestamp: ${Date.now()}`;
+        const signature = await wallet.signer.signMessage(message);
+        
+        const result = await walletsApi.verify({
+          address: wallet.address,
+          chainId: wallet.chainId!,
+          message,
+          signature,
+        });
+        targetWallet = result.wallet;
+        queryClient.invalidateQueries({ queryKey: ["wallets"] });
+      }
+
+      // Derive Polymarket credentials
+      console.log("Deriving Polymarket API credentials from private key...");
+      const creds = await derivePolymarketCredentials(wallet.signer);
+      
+      console.log("Credentials derived, storing...");
+      
+      // Store credentials
+      await storeMutation.mutateAsync({
+        walletId: (targetWallet as any).id,
+        apiKey: creds.apiKey,
+        apiSecret: creds.secret,
+        passphrase: creds.passphrase,
+      });
+
+      // Clear private key from memory
+      setPrivateKey("");
+      console.log("Credentials stored successfully!");
+    } catch (err: any) {
+      console.error("Error deriving credentials:", err);
+      setError(err.message || "Failed to derive credentials");
+    } finally {
+      setDeriving(false);
+    }
+  };
+
+  const handleManualSave = () => {
+    if (!walletId || !apiKey || !apiSecret || !passphrase) {
+      setError("All fields are required");
+      return;
+    }
+    storeMutation.mutate({ walletId, apiKey, apiSecret, passphrase });
+  };
 
   if (isLoading) {
     return (
@@ -194,10 +309,9 @@ function CredentialsSection({
         <div>
           <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/30 rounded-lg mb-4">
             <div>
-              <p className="text-green-400 font-medium">Credentials configured</p>
-              <p className="text-surface-500 text-sm">Your API credentials are securely stored</p>
+              <p className="text-green-400 font-medium">✓ Credentials configured</p>
+              <p className="text-surface-500 text-sm">Your API credentials are securely stored and ready for trading</p>
             </div>
-            <span className="text-green-400">✓</span>
           </div>
           <button
             onClick={() => {
@@ -211,104 +325,176 @@ function CredentialsSection({
             Revoke Credentials
           </button>
         </div>
-      ) : showForm ? (
+      ) : (
         <div className="space-y-4">
           {error && <p className="text-red-400 text-sm">{error}</p>}
 
-          <p className="text-surface-400 text-sm">
-            Enter your Polymarket CLOB API credentials. These are derived from your wallet
-            using the official CLOB client.
-          </p>
+          {/* Mode selector */}
+          <div className="flex gap-2 p-1 bg-surface-800 rounded-lg">
+            <button
+              onClick={() => setMode("auto")}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition ${
+                mode === "auto" ? "bg-primary-600 text-white" : "text-surface-400 hover:text-white"
+              }`}
+            >
+              🦊 MetaMask
+            </button>
+            <button
+              onClick={() => setMode("privatekey")}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition ${
+                mode === "privatekey" ? "bg-primary-600 text-white" : "text-surface-400 hover:text-white"
+              }`}
+            >
+              🔑 Private Key
+            </button>
+            <button
+              onClick={() => setMode("manual")}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition ${
+                mode === "manual" ? "bg-primary-600 text-white" : "text-surface-400 hover:text-white"
+              }`}
+            >
+              ✏️ Manual
+            </button>
+          </div>
 
-          {wallets.length === 0 ? (
-            <p className="text-yellow-400 text-sm">Connect a wallet first to store credentials.</p>
-          ) : (
+          {mode === "auto" && (
             <>
-              <div>
-                <label className="label">Wallet</label>
-                <select
-                  value={walletId}
-                  onChange={(e) => setWalletId(e.target.value)}
-                  className="input"
-                  required
-                >
-                  <option value="">Select wallet...</option>
-                  {wallets.map((w: any) => (
-                    <option key={w.id} value={w.id}>
-                      {w.address}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <p className="text-surface-400 text-sm">
+                Connect MetaMask and sign a message to derive your Polymarket API credentials.
+                Best for users with MetaMask or other browser wallets.
+              </p>
 
-              <div>
-                <label className="label">API Key</label>
-                <input
-                  type="text"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="input font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="label">API Secret</label>
-                <input
-                  type="password"
-                  value={apiSecret}
-                  onChange={(e) => setApiSecret(e.target.value)}
-                  className="input font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="label">Passphrase</label>
-                <input
-                  type="password"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                  className="input font-mono"
-                  required
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    if (!walletId || !apiKey || !apiSecret || !passphrase) {
-                      setError("All fields are required");
-                      return;
-                    }
-                    storeMutation.mutate({ walletId, apiKey, apiSecret, passphrase });
-                  }}
-                  disabled={storeMutation.isPending}
-                  className="btn-primary"
-                >
-                  {storeMutation.isPending ? "Saving..." : "Save Credentials"}
-                </button>
-                <button onClick={() => setShowForm(false)} className="btn-secondary">
-                  Cancel
-                </button>
-              </div>
+              <button
+                onClick={handleDeriveCredentials}
+                disabled={deriving || storeMutation.isPending}
+                className="btn-primary w-full"
+              >
+                {deriving ? "Check MetaMask for signature request..." : 
+                 storeMutation.isPending ? "Storing..." : 
+                 "🦊 Connect MetaMask & Derive Credentials"}
+              </button>
             </>
           )}
-        </div>
-      ) : (
-        <div>
-          <p className="text-surface-400 text-sm mb-4">
-            Configure your Polymarket API credentials to enable trading.
-          </p>
-          <button
-            onClick={() => setShowForm(true)}
-            disabled={wallets.length === 0}
-            className="btn-primary"
-          >
-            + Add Credentials
-          </button>
-          {wallets.length === 0 && (
-            <p className="text-yellow-400 text-sm mt-2">Connect a wallet first</p>
+
+          {mode === "privatekey" && (
+            <>
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <p className="text-yellow-400 text-sm font-medium">⚠️ For Polymarket.com users</p>
+                <p className="text-surface-400 text-xs mt-1">
+                  If you created your account on Polymarket.com (email/Google login), 
+                  you can export your private key from{" "}
+                  <a 
+                    href="https://polymarket.com/settings" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-primary-400 underline"
+                  >
+                    polymarket.com/settings
+                  </a>
+                </p>
+              </div>
+
+              <div>
+                <label className="label">Private Key</label>
+                <input
+                  type="password"
+                  value={privateKey}
+                  onChange={(e) => setPrivateKey(e.target.value)}
+                  className="input font-mono text-sm"
+                  placeholder="0x... or paste without 0x"
+                />
+                <p className="text-surface-500 text-xs mt-1">
+                  Your private key is used locally to derive credentials and is never sent to our servers.
+                </p>
+              </div>
+
+              <button
+                onClick={handleDeriveFromPrivateKey}
+                disabled={deriving || storeMutation.isPending || !privateKey}
+                className="btn-primary w-full"
+              >
+                {deriving ? "Deriving credentials..." : 
+                 storeMutation.isPending ? "Storing..." : 
+                 "🔑 Derive Credentials from Private Key"}
+              </button>
+            </>
+          )}
+
+          {mode === "manual" && (
+            <>
+              <p className="text-surface-400 text-sm">
+                Enter your Polymarket CLOB API credentials manually if you already have them.
+              </p>
+
+              {wallets.length === 0 ? (
+                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <p className="text-yellow-400 text-sm">Connect a wallet first using MetaMask or Private Key mode</p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="label">Wallet</label>
+                    <select
+                      value={walletId}
+                      onChange={(e) => setWalletId(e.target.value)}
+                      className="input"
+                      required
+                    >
+                      <option value="">Select wallet...</option>
+                      {wallets.map((w: any) => (
+                        <option key={w.id} value={w.id}>
+                          {shortenAddress(w.address)} (Polygon)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="label">API Key</label>
+                    <input
+                      type="text"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="input font-mono text-sm"
+                      placeholder="550e8400-e29b-41d4-a716-446655440000"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="label">API Secret</label>
+                    <input
+                      type="password"
+                      value={apiSecret}
+                      onChange={(e) => setApiSecret(e.target.value)}
+                      className="input font-mono text-sm"
+                      placeholder="base64EncodedSecretString"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="label">Passphrase</label>
+                    <input
+                      type="password"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      className="input font-mono text-sm"
+                      placeholder="randomPassphraseString"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleManualSave}
+                    disabled={storeMutation.isPending}
+                    className="btn-primary w-full"
+                  >
+                    {storeMutation.isPending ? "Saving..." : "Save Credentials"}
+                  </button>
+                </>
+              )}
+            </>
           )}
         </div>
       )}
