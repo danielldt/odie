@@ -195,139 +195,61 @@ async function resolveMarketFromSeries(seriesSlug: string): Promise<{
   endDate: Date | null;
 } | null> {
   try {
-    // Try multiple search strategies
-    const searchQueries = [
-      seriesSlug, // e.g., "btc-updown-15m"
-      seriesSlug.replace(/-/g, ' '), // e.g., "btc updown 15m"
-      seriesSlug.split('-').slice(0, 2).join(' '), // e.g., "btc updown"
-    ];
-
-    let markets: any[] = [];
-
-    // Try public-search first
-    for (const query of searchQueries) {
-      const response = await fetch(
-        `https://gamma-api.polymarket.com/public-search?query=${encodeURIComponent(query)}&limit=50`
-      );
-      
-      if (response.ok) {
-        const results = await response.json() as any[];
-        logger.info({ query, resultsCount: results.length }, "Search attempt");
-        
-        if (results.length > 0) {
-          markets = results;
-          break;
-        }
-      }
+    // Direct approach: fetch active markets and filter for BTC 15-min
+    logger.info({ seriesSlug }, "Searching for active BTC 15-min markets...");
+    
+    const response = await fetch(
+      `https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=200`
+    );
+    
+    if (!response.ok) {
+      logger.error({ status: response.status }, "Failed to fetch markets");
+      return null;
     }
 
-    // If public-search returned nothing, try the markets endpoint directly
-    if (markets.length === 0) {
-      logger.info("Public search returned no results, trying markets endpoint...");
-      const marketsResponse = await fetch(
-        `https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=100`
-      );
-      
-      if (marketsResponse.ok) {
-        const allMarkets = await marketsResponse.json() as any[];
-        // Filter by slug pattern
-        const baseSlug = seriesSlug.replace(/-\d+$/, ''); // Remove trailing timestamp if any
-        markets = allMarkets.filter((m: any) => 
-          m.slug?.toLowerCase().includes(baseSlug.toLowerCase()) ||
-          m.question?.toLowerCase().includes(baseSlug.replace(/-/g, ' ').toLowerCase())
-        );
-        logger.info({ baseSlug, matchedCount: markets.length }, "Markets matched from direct fetch");
-      }
-    }
+    const allMarkets = await response.json() as any[];
+    logger.info({ totalMarkets: allMarkets.length }, "Fetched all active markets");
 
-    const now = Date.now();
-    
-    logger.info({ 
-      seriesSlug, 
-      totalFound: markets.length,
-      sampleMarkets: markets.slice(0, 10).map((m: any) => ({
-        id: m.id,
-        slug: m.slug,
-        question: m.question?.slice(0, 60),
-        active: m.active,
-        closed: m.closed,
-        acceptingOrders: m.acceptingOrders,
-        endDate: m.endDate,
-        startDate: m.startDate,
-      }))
-    }, "Markets found from API");
-
-    // Filter for active markets that have been open for a while
-    const baseSlug = seriesSlug.replace(/-\d+$/, '');
-    
-    // Log each market's filter status
-    markets.forEach((m: any) => {
-      const matchesSlug = m.slug?.toLowerCase().includes(baseSlug.toLowerCase());
-      const matchesQuestion = m.question?.toLowerCase().includes('btc') || 
-                              m.question?.toLowerCase().includes('bitcoin');
-      const isActive = m.active && !m.closed && m.acceptingOrders !== false;
+    // Find BTC 15-min markets
+    const btc15mMarkets = allMarkets.filter((m: any) => {
+      const slug = (m.slug || '').toLowerCase();
+      const question = (m.question || '').toLowerCase();
       
-      logger.info({
-        marketId: m.id,
-        slug: m.slug?.slice(0, 40),
-        matchesSlug,
-        matchesQuestion,
-        active: m.active,
-        closed: m.closed,
-        acceptingOrders: m.acceptingOrders,
-        isActive,
-        endDate: m.endDate,
-      }, "Market filter check");
+      // Match BTC 15-min markets by various patterns
+      const isBtc15m = 
+        slug.includes('btc-updown-15m') ||
+        slug.includes('btc-15m') ||
+        (slug.includes('btc') && slug.includes('15m')) ||
+        (question.includes('bitcoin') && question.includes('15 min')) ||
+        (question.includes('btc') && question.includes('15'));
+      
+      return isBtc15m;
     });
 
-    const eligibleMarkets = markets
-      .filter((m: any) => {
-        // More lenient matching - just check if it's a BTC market
-        const isBtcMarket = m.slug?.toLowerCase().includes('btc') || 
-                           m.question?.toLowerCase().includes('btc') ||
-                           m.question?.toLowerCase().includes('bitcoin');
-        
-        // Check if it's a 15-min market
-        const is15MinMarket = m.slug?.includes('15m') || 
-                              m.question?.toLowerCase().includes('15 min') ||
-                              m.question?.toLowerCase().includes('15-min');
-        
-        if (!isBtcMarket) {
-          return false;
-        }
-        
-        if (m.closed) {
-          logger.debug({ slug: m.slug }, "Filtered: closed");
-          return false;
-        }
-        
-        if (!m.active) {
-          logger.debug({ slug: m.slug }, "Filtered: not active");
-          return false;
-        }
-        
-        if (m.acceptingOrders === false) {
-          logger.debug({ slug: m.slug }, "Filtered: not accepting orders");
-          return false;
-        }
-        
-        // Reduced minimum age to 1 minute (was 3)
-        const acceptingOrdersTimestamp = m.acceptingOrdersTimestamp 
-          ? new Date(m.acceptingOrdersTimestamp).getTime() 
-          : (m.startDate ? new Date(m.startDate).getTime() : 0);
-        const marketAge = now - acceptingOrdersTimestamp;
-        
-        // Only filter if we have a valid timestamp and it's very new
-        if (acceptingOrdersTimestamp > 0 && marketAge < 60000) { // 1 minute
-          logger.info({ 
-            slug: m.slug,
-            ageSeconds: (marketAge / 1000).toFixed(0),
-          }, "Filtered: too new (< 1 min)");
-          return false;
-        }
-        
-        return true;
-      })
+    logger.info({ 
+      found: btc15mMarkets.length,
+      markets: btc15mMarkets.map((m: any) => ({
+        slug: m.slug,
+        question: m.question?.slice(0, 50),
+        active: m.active,
+        closed: m.closed,
+        acceptingOrders: m.acceptingOrders,
+        endDate: m.endDate,
+      }))
+    }, "BTC 15-min markets found");
+
+    // Filter for markets accepting orders
+    const eligibleMarkets = btc15mMarkets.filter((m: any) => {
+      if (m.closed) {
+        logger.info({ slug: m.slug }, "Skipped: market closed");
+        return false;
+      }
+      if (m.acceptingOrders === false) {
+        logger.info({ slug: m.slug }, "Skipped: not accepting orders");
+        return false;
+      }
+      return true;
+    })
       // Sort by end date (soonest first) to trade markets closer to resolution
       .sort((a: any, b: any) => {
         const aEnd = new Date(a.endDate || 0).getTime();
