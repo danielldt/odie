@@ -91,17 +91,12 @@ export async function connectWithPrivateKey(privateKey: string): Promise<WalletS
 const POLYMARKET_CLOB_URL = "https://clob.polymarket.com";
 
 // Build L1 authentication headers for Polymarket API (EIP-712 signing)
-async function buildPolymarketAuthHeaders(signer: ethers.Signer): Promise<{
-  POLY_ADDRESS: string;
-  POLY_SIGNATURE: string;
-  POLY_TIMESTAMP: string;
-  POLY_NONCE: string;
-}> {
+async function buildPolymarketAuthHeaders(signer: ethers.Signer): Promise<Record<string, string>> {
   const address = await signer.getAddress();
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = "0"; // Use 0 for initial auth
+  const nonce = 0;
 
-  // EIP-712 domain and message for Polymarket
+  // EIP-712 domain for Polymarket CLOB authentication
   const domain = {
     name: "ClobAuthDomain",
     version: "1",
@@ -120,18 +115,18 @@ async function buildPolymarketAuthHeaders(signer: ethers.Signer): Promise<{
   const message = {
     address,
     timestamp,
-    nonce: 0,
+    nonce,
     message: "This message attests that I control the given wallet",
   };
 
-  // Sign using EIP-712
+  // Sign using EIP-712 typed data
   const signature = await (signer as any)._signTypedData(domain, types, message);
 
   return {
-    POLY_ADDRESS: address,
-    POLY_SIGNATURE: signature,
-    POLY_TIMESTAMP: timestamp,
-    POLY_NONCE: nonce,
+    "POLY_ADDRESS": address,
+    "POLY_SIGNATURE": signature,
+    "POLY_TIMESTAMP": timestamp,
+    "POLY_NONCE": nonce.toString(),
   };
 }
 
@@ -140,31 +135,38 @@ export async function derivePolymarketCredentials(signer: ethers.Signer): Promis
   secret: string;
   passphrase: string;
 }> {
-  const address = await signer.getAddress();
-  
   // Build authentication headers
   const authHeaders = await buildPolymarketAuthHeaders(signer);
 
   // Try to derive existing API key first
-  const deriveResponse = await fetch(`${POLYMARKET_CLOB_URL}/auth/derive-api-key`, {
-    method: "GET",
-    headers: {
-      ...authHeaders,
-    },
-  });
+  console.log("Attempting to derive existing API key...");
+  try {
+    const deriveResponse = await fetch(`${POLYMARKET_CLOB_URL}/auth/derive-api-key`, {
+      method: "GET",
+      headers: authHeaders,
+    });
 
-  if (deriveResponse.ok) {
-    const data = await deriveResponse.json();
-    if (data.apiKey || data.key) {
-      return {
-        apiKey: data.apiKey || data.key,
-        secret: data.secret || data.apiSecret,
-        passphrase: data.passphrase,
-      };
+    if (deriveResponse.ok) {
+      const data = await deriveResponse.json();
+      console.log("Derive response:", data);
+      if (data.apiKey) {
+        return {
+          apiKey: data.apiKey,
+          secret: data.secret,
+          passphrase: data.passphrase,
+        };
+      }
+    } else {
+      console.log("Derive failed with status:", deriveResponse.status);
+      const errorText = await deriveResponse.text();
+      console.log("Derive error:", errorText);
     }
+  } catch (err) {
+    console.log("Derive request failed:", err);
   }
 
   // If no existing key, create a new one
+  console.log("Creating new API key...");
   const createResponse = await fetch(`${POLYMARKET_CLOB_URL}/auth/api-key`, {
     method: "POST",
     headers: {
@@ -175,14 +177,20 @@ export async function derivePolymarketCredentials(signer: ethers.Signer): Promis
 
   if (!createResponse.ok) {
     const error = await createResponse.text();
+    console.error("Create API key failed:", createResponse.status, error);
     throw new Error(`Failed to create API key: ${error}`);
   }
 
   const data = await createResponse.json();
+  console.log("Create response:", data);
+  
+  if (!data.apiKey || !data.secret || !data.passphrase) {
+    throw new Error("Polymarket returned incomplete credentials. Please try again.");
+  }
   
   return {
-    apiKey: data.apiKey || data.key,
-    secret: data.secret || data.apiSecret,
+    apiKey: data.apiKey,
+    secret: data.secret,
     passphrase: data.passphrase,
   };
 }

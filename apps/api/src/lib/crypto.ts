@@ -4,15 +4,39 @@ import { config } from "../config.js";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
+const KEY_LENGTH = 32; // 256 bits
+
+/**
+ * Derive a 32-byte key from the master key (handles any input format)
+ */
+function deriveKey(): Buffer {
+  const masterKey = config.credentialsMasterKey;
+  
+  // If it looks like base64 and decodes to 32 bytes, use directly
+  if (/^[A-Za-z0-9+/=]+$/.test(masterKey)) {
+    try {
+      const decoded = Buffer.from(masterKey, "base64");
+      if (decoded.length === KEY_LENGTH) {
+        return decoded;
+      }
+    } catch {
+      // Fall through to hash-based derivation
+    }
+  }
+  
+  // Otherwise, derive a 32-byte key using SHA-256
+  return createHash("sha256").update(masterKey).digest();
+}
+
+const encryptionKey = deriveKey();
 
 /**
  * Encrypt data using AES-256-GCM with the master key
  */
 export function encrypt(plaintext: string): { encrypted: string; iv: string } {
-  const key = Buffer.from(config.credentialsMasterKey, "base64");
   const iv = randomBytes(IV_LENGTH);
   
-  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const cipher = createCipheriv(ALGORITHM, encryptionKey, iv);
   
   let encrypted = cipher.update(plaintext, "utf8", "base64");
   encrypted += cipher.final("base64");
@@ -35,7 +59,6 @@ export function encrypt(plaintext: string): { encrypted: string; iv: string } {
  * Decrypt data using AES-256-GCM with the master key
  */
 export function decrypt(encryptedWithTag: string, ivHex: string): string {
-  const key = Buffer.from(config.credentialsMasterKey, "base64");
   const iv = Buffer.from(ivHex, "hex");
   
   const encryptedBuffer = Buffer.from(encryptedWithTag, "base64");
@@ -44,7 +67,7 @@ export function decrypt(encryptedWithTag: string, ivHex: string): string {
   const authTag = encryptedBuffer.subarray(encryptedBuffer.length - AUTH_TAG_LENGTH);
   const encrypted = encryptedBuffer.subarray(0, encryptedBuffer.length - AUTH_TAG_LENGTH);
   
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  const decipher = createDecipheriv(ALGORITHM, encryptionKey, iv);
   decipher.setAuthTag(authTag);
   
   let decrypted = decipher.update(encrypted);
