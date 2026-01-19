@@ -8,6 +8,13 @@
       "when": 1768634309138,
       "tag": "0000_warm_sage",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1768828000000,
+      "tag": "0001_add_series_strategy",
+      "breakpoints": true
     }
   ]
 }
