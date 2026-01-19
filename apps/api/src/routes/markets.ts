@@ -8,9 +8,10 @@ import { NotFoundError } from "../lib/error-handler.js";
 const gammaApi = createGammaApiClient();
 
 export async function marketRoutes(app: FastifyInstance) {
-  app.addHook("onRequest", authenticate);
+  // NOTE: Markets are public data - no authentication required for list/search
+  // Only sync endpoint requires auth
 
-  // List/search markets - fetches directly from Polymarket Gamma API
+  // List/search markets - fetches directly from Polymarket Gamma API (PUBLIC)
   app.get("/", async (request) => {
     const params = marketsQuerySchema.parse(request.query);
     
@@ -107,8 +108,8 @@ export async function marketRoutes(app: FastifyInstance) {
     return { market };
   });
 
-  // Sync markets from Gamma API (admin/cron endpoint)
-  app.post("/sync", async (request, reply) => {
+  // Sync markets from Gamma API (admin/cron endpoint) - requires auth
+  app.post("/sync", { onRequest: authenticate }, async (request, reply) => {
     try {
       const markets = await gammaApi.getAllActiveMarkets();
       
