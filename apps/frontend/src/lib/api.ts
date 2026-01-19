@@ -1,8 +1,23 @@
 import { useAuthStore } from "../stores/auth";
 
-const API_BASE = import.meta.env.VITE_API_URL 
-  ? `${import.meta.env.VITE_API_URL}/v1` 
-  : "/api/v1";
+// Get API URL from runtime config, build-time env, or fallback
+function getApiBase(): string {
+  // Check runtime config first (set via config.js)
+  const runtimeConfig = (window as any).__ODIE_CONFIG__;
+  if (runtimeConfig?.API_URL && !runtimeConfig.API_URL.includes("PLACEHOLDER")) {
+    return `${runtimeConfig.API_URL}/v1`;
+  }
+  
+  // Check build-time env
+  if (import.meta.env.VITE_API_URL) {
+    return `${import.meta.env.VITE_API_URL}/v1`;
+  }
+  
+  // Fallback for same-origin deployment
+  return "/api/v1";
+}
+
+const API_BASE = getApiBase();
 
 class ApiClient {
   private getHeaders(): HeadersInit {

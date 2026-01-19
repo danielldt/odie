@@ -4,10 +4,10 @@ RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
 # Install dependencies
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/frontend/package.json ./apps/frontend/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Build
 FROM base AS builder
@@ -19,21 +19,25 @@ COPY . .
 RUN pnpm --filter @odie/shared build
 RUN pnpm --filter @odie/frontend build
 
-# Production - simple Node.js static server
-FROM node:20-alpine AS runner
-WORKDIR /app
+# Production - serve with nginx
+FROM nginx:alpine AS runner
 
-# Install serve globally
-RUN npm install -g serve
+# Install envsubst
+RUN apk add --no-cache gettext
 
 # Copy built files
-COPY --from=builder /app/apps/frontend/dist ./dist
+COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
-# Create start script that properly reads PORT
-RUN printf '#!/bin/sh\nexec serve -s dist -p "${PORT:-3000}"\n' > /start.sh && chmod +x /start.sh
+# Copy nginx config as template
+COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf.template
 
-# Default port (Railway provides PORT)
+# Copy entrypoint script
+COPY apps/frontend/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+# Default port
 ENV PORT=3000
+
 EXPOSE 3000
 
-CMD ["/start.sh"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
