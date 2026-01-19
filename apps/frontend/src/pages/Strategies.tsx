@@ -85,27 +85,31 @@ export function StrategiesPage() {
                     </span>
                   </div>
                   
-                  <p className="text-surface-400 text-sm mb-4">
-                    Market: {strategy.market?.question?.slice(0, 60) || strategy.marketId}...
+                  <p className="text-surface-400 text-sm mb-4 font-mono">
+                    {strategy.seriesSlug || strategy.marketId || "No market configured"}
                   </p>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div>
-                      <p className="text-surface-500">YES Price</p>
-                      <p className="font-mono text-primary-400">${parseFloat(strategy.yesLimitPrice).toFixed(3)}</p>
+                      <p className="text-surface-500">Limit Price</p>
+                      <p className="font-mono text-primary-400">
+                        ${strategy.limitPrice ? parseFloat(strategy.limitPrice).toFixed(2) : "N/A"}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-surface-500">NO Price</p>
-                      <p className="font-mono text-primary-400">${parseFloat(strategy.noLimitPrice).toFixed(3)}</p>
-                    </div>
-                    <div>
-                      <p className="text-surface-500">Frequency</p>
-                      <p className="font-mono">{strategy.frequencySeconds / 60}m</p>
-                    </div>
-                    <div>
-                      <p className="text-surface-500">Runs</p>
+                      <p className="text-surface-500">Position Size</p>
                       <p className="font-mono">
-                        {strategy.runsCompleted}
+                        ${strategy.positionSizeUsdc ? parseFloat(strategy.positionSizeUsdc).toFixed(0) : "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-surface-500">Check Every</p>
+                      <p className="font-mono">{Math.round((strategy.frequencySeconds || 60) / 60)}m</p>
+                    </div>
+                    <div>
+                      <p className="text-surface-500">Trades</p>
+                      <p className="font-mono">
+                        {strategy.runsCompleted ?? 0}
                         {strategy.maxRuns ? ` / ${strategy.maxRuns}` : " / ∞"}
                       </p>
                     </div>
