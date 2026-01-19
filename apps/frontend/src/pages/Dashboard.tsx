@@ -23,8 +23,8 @@ export function DashboardPage() {
   const pnlSummary = pnlData?.summary as { totalPnl?: number; totalVolume?: number; totalTrades?: number } | undefined;
 
   const activeStrategies = strategies.filter((s: any) => s.enabled).length;
-  const totalPnl = pnlSummary?.totalPnl ?? 0;
-  const totalVolume = pnlSummary?.totalVolume ?? 0;
+  const totalPnl = Number(pnlSummary?.totalPnl) || 0;
+  const totalVolume = Number(pnlSummary?.totalVolume) || 0;
 
   return (
     <div className="space-y-8">

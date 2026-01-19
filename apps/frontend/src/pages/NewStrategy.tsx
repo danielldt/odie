@@ -48,7 +48,8 @@ export function NewStrategyPage() {
       return;
     }
 
-    const tokens = selectedMarket.metadataJson?.tokens;
+    // Tokens can be directly on market or nested in metadataJson (depending on source)
+    const tokens = selectedMarket.tokens || selectedMarket.metadataJson?.tokens;
     const yesToken = tokens?.find((t: any) => t.outcome?.toLowerCase() === "yes");
     const noToken = tokens?.find((t: any) => t.outcome?.toLowerCase() === "no");
 

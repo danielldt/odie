@@ -43,13 +43,14 @@ export class GammaApiClient {
 
   /**
    * List markets with optional filters
+   * According to Polymarket docs: https://docs.polymarket.com/api-reference/markets/list-markets
    */
   async getMarkets(params?: {
     active?: boolean;
     closed?: boolean;
     slug?: string;
     limit?: number;
-    cursor?: string;
+    offset?: number;
   }): Promise<GammaMarketsResponse> {
     const searchParams = new URLSearchParams();
     
@@ -60,19 +61,27 @@ export class GammaApiClient {
       searchParams.set("closed", params.closed.toString());
     }
     if (params?.slug) {
+      // Gamma API uses slug[] for array params
       searchParams.set("slug", params.slug);
     }
     if (params?.limit) {
       searchParams.set("limit", params.limit.toString());
     }
-    if (params?.cursor) {
-      searchParams.set("cursor", params.cursor);
+    if (params?.offset !== undefined) {
+      searchParams.set("offset", params.offset.toString());
     }
 
     const queryString = searchParams.toString();
     const path = queryString ? `/markets?${queryString}` : "/markets";
     
-    return this.request<GammaMarketsResponse>(path);
+    // Gamma API returns array directly, not wrapped in object
+    const response = await this.request<GammaMarket[] | GammaMarketsResponse>(path);
+    
+    // Handle both array and object response formats
+    if (Array.isArray(response)) {
+      return { markets: response };
+    }
+    return response;
   }
 
   /**
@@ -93,21 +102,25 @@ export class GammaApiClient {
   /**
    * Get all active markets (paginated)
    */
-  async getAllActiveMarkets(): Promise<GammaMarket[]> {
+  async getAllActiveMarkets(maxPages = 10): Promise<GammaMarket[]> {
     const allMarkets: GammaMarket[] = [];
-    let cursor: string | undefined;
+    const limit = 100;
 
-    do {
+    for (let page = 0; page < maxPages; page++) {
       const response = await this.getMarkets({
         active: true,
         closed: false,
-        limit: 100,
-        cursor,
+        limit,
+        offset: page * limit,
       });
       
       allMarkets.push(...response.markets);
-      cursor = response.nextCursor;
-    } while (cursor);
+      
+      // Stop if we got fewer than limit (no more pages)
+      if (response.markets.length < limit) {
+        break;
+      }
+    }
 
     return allMarkets;
   }

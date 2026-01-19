@@ -10,23 +10,71 @@ const gammaApi = createGammaApiClient();
 export async function marketRoutes(app: FastifyInstance) {
   app.addHook("onRequest", authenticate);
 
-  // List/search markets
+  // List/search markets - fetches directly from Polymarket Gamma API
   app.get("/", async (request) => {
     const params = marketsQuerySchema.parse(request.query);
     
-    const result = await searchMarkets({
-      search: params.search,
-      active: params.active,
-      limit: params.limit,
-      offset: params.offset,
-    });
+    try {
+      // Fetch from Polymarket Gamma API directly
+      const gammaResponse = await gammaApi.getMarkets({
+        active: params.active ?? true,
+        limit: params.limit,
+        offset: params.offset,
+      });
 
-    return {
-      markets: result.markets,
-      total: result.total,
-      limit: params.limit,
-      offset: params.offset,
-    };
+      let markets = gammaResponse.markets;
+
+      // Filter by search term if provided
+      if (params.search) {
+        const searchLower = params.search.toLowerCase();
+        markets = markets.filter(
+          (m) =>
+            m.question?.toLowerCase().includes(searchLower) ||
+            m.slug?.toLowerCase().includes(searchLower) ||
+            m.description?.toLowerCase().includes(searchLower)
+        );
+      }
+
+      // Transform to our format
+      const transformedMarkets = markets.map((m) => ({
+        id: m.id,
+        slug: m.slug,
+        question: m.question,
+        description: m.description,
+        active: m.active,
+        closed: m.closed,
+        outcomes: m.outcomes,
+        outcomePrices: m.outcomePrices,
+        volume: m.volume,
+        liquidity: m.liquidity,
+        tokens: m.tokens,
+        endDate: m.endDate,
+      }));
+
+      return {
+        markets: transformedMarkets,
+        total: transformedMarkets.length,
+        limit: params.limit,
+        offset: params.offset,
+      };
+    } catch (error) {
+      request.log.error(error, "Failed to fetch markets from Gamma API");
+      
+      // Fallback to local DB
+      const result = await searchMarkets({
+        search: params.search,
+        active: params.active,
+        limit: params.limit,
+        offset: params.offset,
+      });
+
+      return {
+        markets: result.markets,
+        total: result.total,
+        limit: params.limit,
+        offset: params.offset,
+      };
+    }
   });
 
   // Get single market
