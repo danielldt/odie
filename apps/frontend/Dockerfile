@@ -31,13 +31,13 @@ COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 # Copy nginx config as template
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf.template
 
-# Copy entrypoint script
-COPY apps/frontend/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Copy and setup start script (Railway looks for this)
+COPY apps/frontend/docker-entrypoint.sh /start.sh
+RUN chmod +x /start.sh
 
 # Default port
 ENV PORT=3000
 
 EXPOSE 3000
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/start.sh"]
