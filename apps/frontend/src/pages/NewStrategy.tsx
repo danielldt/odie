@@ -1,34 +1,27 @@
-import { useState, useDeferredValue } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { marketsApi, strategiesApi } from "../lib/api";
+import { strategiesApi } from "../lib/api";
+
+// Popular series for quick selection
+const POPULAR_SERIES = [
+  { slug: "btc-updown-15m", name: "Bitcoin 15-minute", description: "BTC up/down every 15 min" },
+  { slug: "eth-updown-15m", name: "Ethereum 15-minute", description: "ETH up/down every 15 min" },
+];
 
 export function NewStrategyPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   
-  const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search); // Debounce search
-  const [selectedMarket, setSelectedMarket] = useState<any>(null);
   const [error, setError] = useState("");
 
-  // Form state
+  // Form state - simplified!
   const [name, setName] = useState("");
-  const [yesPrice, setYesPrice] = useState("0.45");
-  const [noPrice, setNoPrice] = useState("0.45");
-  const [yesSize, setYesSize] = useState("10");
-  const [noSize, setNoSize] = useState("10");
-  const [frequency, setFrequency] = useState("5");
-  const [maxRuns, setMaxRuns] = useState("");
-  const [autoCashOut, setAutoCashOut] = useState(true);
-
-  const { data: marketsData, isLoading: marketsLoading } = useQuery({
-    queryKey: ["markets", deferredSearch],
-    // Don't filter by active - we want to see all markets including upcoming ones
-    queryFn: () => marketsApi.list({ search: deferredSearch, limit: 100 }),
-    // Don't refetch on window focus for search
-    refetchOnWindowFocus: false,
-  });
+  const [seriesSlug, setSeriesSlug] = useState("btc-updown-15m");
+  const [limitPrice, setLimitPrice] = useState("0.49");
+  const [positionSize, setPositionSize] = useState("50");
+  const [maxRuns, setMaxRuns] = useState("10");
+  const [frequency, setFrequency] = useState("1"); // minutes
 
   const createMutation = useMutation({
     mutationFn: strategiesApi.create,
@@ -41,49 +34,37 @@ export function NewStrategyPage() {
     },
   });
 
-  const markets = marketsData?.markets ?? [];
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!selectedMarket) {
-      setError("Please select a market");
+    if (!seriesSlug.trim()) {
+      setError("Please enter a market series");
       return;
     }
 
-    // Tokens can be directly on market or nested in metadataJson (depending on source)
-    const tokens = selectedMarket.tokens || selectedMarket.metadataJson?.tokens;
-    const yesToken = tokens?.find((t: any) => t.outcome?.toLowerCase() === "yes");
-    const noToken = tokens?.find((t: any) => t.outcome?.toLowerCase() === "no");
-
-    if (!yesToken || !noToken) {
-      setError("Market does not have YES/NO tokens");
-      return;
-    }
-
-    const yesPriceNum = parseFloat(yesPrice);
-    const noPriceNum = parseFloat(noPrice);
-
-    if (yesPriceNum + noPriceNum >= 0.998) {
-      setError("YES + NO prices must be less than 0.998 for arbitrage edge");
+    const priceNum = parseFloat(limitPrice);
+    if (priceNum * 2 >= 0.998) {
+      setError("Limit price too high - need YES + NO < 0.998 for arbitrage edge");
       return;
     }
 
     createMutation.mutate({
-      name: name || `Strategy for ${selectedMarket.question?.slice(0, 30)}...`,
-      marketId: selectedMarket.id,
-      yesTokenId: yesToken.token_id,
-      noTokenId: noToken.token_id,
-      yesLimitPrice: yesPriceNum,
-      noLimitPrice: noPriceNum,
-      yesSize: parseFloat(yesSize),
-      noSize: parseFloat(noSize),
+      name: name || `${seriesSlug} Strategy`,
+      seriesSlug: seriesSlug.trim(),
+      limitPrice: priceNum,
+      positionSizeUsdc: parseFloat(positionSize),
       frequencySeconds: parseInt(frequency) * 60,
       maxRuns: maxRuns ? parseInt(maxRuns) : null,
-      autoCashOut,
     });
   };
+
+  // Calculate expected profit
+  const priceNum = parseFloat(limitPrice) || 0;
+  const sizeNum = parseFloat(positionSize) || 0;
+  const edge = 1 - (priceNum * 2);
+  const contractsPerSide = sizeNum / 2 / priceNum;
+  const expectedProfit = edge * contractsPerSide;
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -92,7 +73,7 @@ export function NewStrategyPage() {
           ← Back to strategies
         </Link>
         <h1 className="text-3xl font-display font-bold">New Strategy</h1>
-        <p className="text-surface-400 mt-1">Create a dual-leg arbitrage strategy</p>
+        <p className="text-surface-400 mt-1">Create a dual-leg arbitrage strategy for a market series</p>
       </div>
 
       {error && (
@@ -102,186 +83,169 @@ export function NewStrategyPage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-        {/* Market selection */}
+        {/* Market Series Selection */}
         <div className="card">
-          <h2 className="text-lg font-display font-semibold mb-4">Select Market</h2>
-          
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search markets..."
-            className="input mb-4"
-          />
+          <h2 className="text-lg font-display font-semibold mb-4">Market Series</h2>
+          <p className="text-surface-400 text-sm mb-4">
+            Enter a market series (e.g., btc-updown-15m). The system will automatically find and trade the current active market.
+          </p>
 
-          {marketsLoading ? (
-            <p className="text-surface-500">Loading markets...</p>
-          ) : markets.length === 0 ? (
-            <p className="text-surface-500">No markets found</p>
-          ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {markets.map((market: any) => (
-                <button
-                  key={market.id}
-                  type="button"
-                  onClick={() => setSelectedMarket(market)}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    selectedMarket?.id === market.id
-                      ? "border-primary-500 bg-primary-500/10"
-                      : "border-surface-700 hover:border-surface-600 bg-surface-800/50"
-                  }`}
-                >
-                  <p className="font-medium text-sm">{market.question}</p>
-                  <p className="text-surface-500 text-xs mt-1">{market.slug}</p>
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Quick select buttons */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {POPULAR_SERIES.map((series) => (
+              <button
+                key={series.slug}
+                type="button"
+                onClick={() => setSeriesSlug(series.slug)}
+                className={`px-3 py-2 rounded-lg border text-sm transition-colors ${
+                  seriesSlug === series.slug
+                    ? "border-primary-500 bg-primary-500/20 text-primary-300"
+                    : "border-surface-700 hover:border-surface-500 text-surface-300"
+                }`}
+              >
+                {series.name}
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <label className="label">Series Slug</label>
+            <input
+              type="text"
+              value={seriesSlug}
+              onChange={(e) => setSeriesSlug(e.target.value)}
+              placeholder="btc-updown-15m"
+              className="input font-mono"
+              required
+            />
+            <p className="text-surface-500 text-xs mt-1">
+              The system will search for active markets matching this pattern
+            </p>
+          </div>
         </div>
 
-        {/* Strategy config */}
-        {selectedMarket && (
-          <>
-            <div className="card">
-              <h2 className="text-lg font-display font-semibold mb-4">Strategy Configuration</h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="label">Strategy Name (optional)</label>
+        {/* Strategy Configuration */}
+        <div className="card">
+          <h2 className="text-lg font-display font-semibold mb-4">Strategy Configuration</h2>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="label">Strategy Name (optional)</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={`${seriesSlug} Strategy`}
+                className="input"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Limit Price (for both YES & NO)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400">$</span>
                   <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={`Strategy for ${selectedMarket.question?.slice(0, 30)}...`}
-                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="0.49"
+                    value={limitPrice}
+                    onChange={(e) => setLimitPrice(e.target.value)}
+                    className="input pl-7"
+                    required
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">YES Limit Price</label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0.001"
-                      max="0.999"
-                      value={yesPrice}
-                      onChange={(e) => setYesPrice(e.target.value)}
-                      className="input"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="label">NO Limit Price</label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0.001"
-                      max="0.999"
-                      value={noPrice}
-                      onChange={(e) => setNoPrice(e.target.value)}
-                      className="input"
-                      required
-                    />
-                  </div>
+                <p className="text-surface-500 text-xs mt-1">
+                  Max price for each side (YES + NO must be &lt; $1)
+                </p>
+              </div>
+              <div>
+                <label className="label">Position Size (USDC)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400">$</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="10"
+                    value={positionSize}
+                    onChange={(e) => setPositionSize(e.target.value)}
+                    className="input pl-7"
+                    required
+                  />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">YES Size (contracts)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      value={yesSize}
-                      onChange={(e) => setYesSize(e.target.value)}
-                      className="input"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="label">NO Size (contracts)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      value={noSize}
-                      onChange={(e) => setNoSize(e.target.value)}
-                      className="input"
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* Arb edge preview */}
-                <div className="p-3 bg-surface-800 rounded-lg">
-                  <p className="text-surface-400 text-sm">
-                    Implied Edge:{" "}
-                    <span className={
-                      1 - parseFloat(yesPrice) - parseFloat(noPrice) > 0
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }>
-                      {((1 - parseFloat(yesPrice) - parseFloat(noPrice)) * 100).toFixed(2)}%
-                    </span>
-                  </p>
-                </div>
+                <p className="text-surface-500 text-xs mt-1">
+                  Total amount to spend per trade (split 50/50)
+                </p>
               </div>
             </div>
 
-            <div className="card">
-              <h2 className="text-lg font-display font-semibold mb-4">Schedule & Safety</h2>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Frequency (minutes)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={frequency}
-                      onChange={(e) => setFrequency(e.target.value)}
-                      className="input"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Max Runs (empty = unlimited)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxRuns}
-                      onChange={(e) => setMaxRuns(e.target.value)}
-                      className="input"
-                      placeholder="∞"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="autoCashOut"
-                    checked={autoCashOut}
-                    onChange={(e) => setAutoCashOut(e.target.checked)}
-                    className="w-4 h-4 rounded border-surface-600 bg-surface-800 text-primary-500 focus:ring-primary-500"
-                  />
-                  <label htmlFor="autoCashOut" className="text-sm text-surface-300">
-                    Auto cash-out after both legs fill (recommended)
-                  </label>
-                </div>
+            {/* Profit Preview */}
+            <div className="p-4 bg-surface-800 rounded-lg space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-surface-400">Arbitrage Edge:</span>
+                <span className={edge > 0 ? "text-green-400 font-medium" : "text-red-400 font-medium"}>
+                  {(edge * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-surface-400">Contracts per side:</span>
+                <span className="text-surface-200">{contractsPerSide.toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-surface-700 pt-2 mt-2">
+                <span className="text-surface-400">Expected Profit per Trade:</span>
+                <span className={expectedProfit > 0 ? "text-green-400 font-bold" : "text-red-400"}>
+                  ${expectedProfit.toFixed(2)}
+                </span>
               </div>
             </div>
+          </div>
+        </div>
 
-            <button
-              type="submit"
-              disabled={createMutation.isPending}
-              className="btn-primary w-full"
-            >
-              {createMutation.isPending ? "Creating..." : "Create Strategy"}
-            </button>
-          </>
-        )}
+        {/* Schedule */}
+        <div className="card">
+          <h2 className="text-lg font-display font-semibold mb-4">Schedule</h2>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Check Frequency (minutes)</label>
+              <input
+                type="number"
+                min="1"
+                max="60"
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value)}
+                className="input"
+                required
+              />
+              <p className="text-surface-500 text-xs mt-1">
+                How often to look for new markets
+              </p>
+            </div>
+            <div>
+              <label className="label">Max Trades</label>
+              <input
+                type="number"
+                min="1"
+                value={maxRuns}
+                onChange={(e) => setMaxRuns(e.target.value)}
+                className="input"
+                placeholder="∞ Unlimited"
+              />
+              <p className="text-surface-500 text-xs mt-1">
+                Leave empty for unlimited
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={createMutation.isPending || edge <= 0}
+          className="btn-primary w-full"
+        >
+          {createMutation.isPending ? "Creating..." : "Create Strategy"}
+        </button>
       </form>
     </div>
   );

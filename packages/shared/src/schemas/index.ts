@@ -38,57 +38,48 @@ export const polymarketCredentialsSchema = z.object({
 });
 
 // ============================================
-// Strategy Schemas
+// Strategy Schemas (Series-based)
 // ============================================
 
+// NEW: Simplified strategy schema for series-based trading
 export const strategyCreateSchema = z.object({
-  marketId: z.string(),
   name: z.string().min(1).max(100),
   
-  yesTokenId: z.string(),
-  noTokenId: z.string(),
+  // Series slug (e.g., "btc-updown-15m") - system finds current market
+  seriesSlug: z.string().min(1).max(200),
   
-  yesLimitPrice: z.number().min(0.001).max(0.999),
-  noLimitPrice: z.number().min(0.001).max(0.999),
-  yesSize: z.number().positive(),
-  noSize: z.number().positive(),
+  // Simplified pricing: same limit price for both YES and NO
+  limitPrice: z.number().min(0.01).max(0.49).default(0.49),
   
-  frequencySeconds: z.number().int().min(60),
+  // Total USDC to spend per trade (split 50/50 between YES and NO)
+  positionSizeUsdc: z.number().min(10).default(50),
+  
+  // Schedule
+  frequencySeconds: z.number().int().min(30).default(60),
   maxRuns: z.number().int().positive().nullable().optional(),
   enabled: z.boolean().optional().default(true),
   
+  // Safety (with sensible defaults)
   minLiquidityUsdc: z.number().positive().optional().default(SAFETY_DEFAULTS.MIN_LIQUIDITY_USDC),
   maxSlippageFromMidpoint: z.number().min(0).max(1).optional().default(SAFETY_DEFAULTS.MAX_SLIPPAGE_FROM_MIDPOINT),
-  legTimeoutMs: z.number().int().positive().optional().default(SAFETY_DEFAULTS.DEFAULT_LEG_TIMEOUT_MS),
+  legTimeoutMs: z.number().int().positive().optional().default(30000), // 30 seconds for fast markets
   autoCashOut: z.boolean().optional().default(true),
 }).refine(
-  (data) => data.yesLimitPrice + data.noLimitPrice < 1 - SAFETY_DEFAULTS.FEE_BUFFER,
-  { message: "YES + NO prices must be less than 1 minus fee buffer for arbitrage edge" }
+  (data) => data.limitPrice * 2 < 1 - SAFETY_DEFAULTS.FEE_BUFFER,
+  { message: "Limit price too high - need (price × 2) < 0.998 for arbitrage edge" }
 );
 
-// Base schema without refinement for partial updates
-const strategyBaseSchema = z.object({
-  marketId: z.string(),
-  name: z.string().min(1).max(100),
-  yesTokenId: z.string(),
-  noTokenId: z.string(),
-  yesLimitPrice: z.number().min(0.001).max(0.999),
-  noLimitPrice: z.number().min(0.001).max(0.999),
-  yesSize: z.number().positive(),
-  noSize: z.number().positive(),
-  frequencySeconds: z.number().int().min(60),
+export const strategyUpdateSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  limitPrice: z.number().min(0.01).max(0.49).optional(),
+  positionSizeUsdc: z.number().min(10).optional(),
+  frequencySeconds: z.number().int().min(30).optional(),
   maxRuns: z.number().int().positive().nullable().optional(),
-  enabled: z.boolean().optional().default(true),
-  minLiquidityUsdc: z.number().positive().optional().default(SAFETY_DEFAULTS.MIN_LIQUIDITY_USDC),
-  maxSlippageFromMidpoint: z.number().min(0).max(1).optional().default(SAFETY_DEFAULTS.MAX_SLIPPAGE_FROM_MIDPOINT),
-  legTimeoutMs: z.number().int().positive().optional().default(SAFETY_DEFAULTS.DEFAULT_LEG_TIMEOUT_MS),
-  autoCashOut: z.boolean().optional().default(true),
-});
-
-export const strategyUpdateSchema = strategyBaseSchema.partial().omit({
-  marketId: true,
-  yesTokenId: true,
-  noTokenId: true,
+  enabled: z.boolean().optional(),
+  minLiquidityUsdc: z.number().positive().optional(),
+  maxSlippageFromMidpoint: z.number().min(0).max(1).optional(),
+  legTimeoutMs: z.number().int().positive().optional(),
+  autoCashOut: z.boolean().optional(),
 });
 
 // ============================================
